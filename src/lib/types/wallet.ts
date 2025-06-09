@@ -189,3 +189,18 @@ export interface NetworkFee {
   maxFeePerGas: string;
   maxPriorityFeePerGas: string;
 }
+
+export interface FeeData {
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+}
+
+export interface TransactionParams {
+  to: string;
+  value: bigint;
+  data?: string;
+  gasLimit?: bigint;
+  nonce?: number;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
+}
