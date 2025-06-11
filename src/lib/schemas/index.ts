@@ -63,37 +63,7 @@ export const getWalletDetailsSchema = z.object({
     .min(8, "Password must be at least 8 characters"),
 });
 
-export const importWalletSchema = z
-  .object({
-    mnemonic: z
-      .string()
-      .min(1, "Mnemonic phrase is required")
-      .refine(
-        (mnemonic) => {
-          const words = mnemonic.trim().split(/\s+/);
-          return words.length === 12 || words.length === 24;
-        },
-        {
-          message: "Mnemonic must be 12 or 24 words",
-        }
-      ),
-    newPassword: z
-      .string()
-      .min(8, "Password must be at least 8 characters")
-      .max(128, "Password must not exceed 128 characters"),
-    confirmPassword: z
-      .string()
-      .min(8, "Password must be at least 8 characters"),
-  })
-  .refine(
-    (data) => data.newPassword === data.confirmPassword,
-    {
-      message: "Passwords do not match",
-      path: ["confirmPassword"],
-    }
-  );
-
-export const recoverWalletSchema = z
+export const importRecoverWalletSchema = z
   .object({
     mnemonic: z
       .string()

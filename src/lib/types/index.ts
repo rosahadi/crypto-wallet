@@ -7,8 +7,7 @@ import {
   sendTokenSchema,
   switchNetworkSchema,
   getWalletDetailsSchema,
-  importWalletSchema,
-  recoverWalletSchema,
+  importRecoverWalletSchema,
 } from "../schemas";
 
 export type CreateWalletFormData = z.infer<
@@ -32,9 +31,6 @@ export type SwitchNetworkFormData = z.infer<
 export type GetWalletDetailsFormData = z.infer<
   typeof getWalletDetailsSchema
 >;
-export type ImportWalletFormData = z.infer<
-  typeof importWalletSchema
->;
-export type RecoverWalletFormData = z.infer<
-  typeof recoverWalletSchema
+export type ImportRecoverWalletFormData = z.infer<
+  typeof importRecoverWalletSchema
 >;
