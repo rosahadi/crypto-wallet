@@ -27,6 +27,7 @@ import {
   useResetNetworkState,
 } from "./useNetwork";
 import { useWalletAuth } from "./useWalletAuth";
+import { useWalletStore } from "../store/WalletAuthStore";
 
 export const useWallet = () => {
   const auth = useWalletAuth();
@@ -326,8 +327,12 @@ export const useWalletBalance = () => {
 };
 
 export const useWalletTransactions = () => {
-  const { isFullyAuthenticated, hasValidSession, address } =
-    useWalletAuth();
+  const {
+    isFullyAuthenticated,
+    hasValidSession,
+    address,
+    hasHydrated,
+  } = useWalletStore();
   const connectionStatus = useConnectionStatus();
   const currentNetwork = useCurrentNetwork();
   const [isLoading, setIsLoading] = useState(false);
@@ -349,7 +354,11 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      if (!isFullyAuthenticated || !hasValidSession) {
+      if (
+        !isFullyAuthenticated() ||
+        !hasValidSession() ||
+        !hasHydrated
+      ) {
         const result = {
           success: false,
           message:
@@ -360,6 +369,7 @@ export const useWalletTransactions = () => {
       }
 
       const senderAddress = fromAddress || address;
+
       if (!senderAddress) {
         const result = {
           success: false,
@@ -419,6 +429,7 @@ export const useWalletTransactions = () => {
       isFullyAuthenticated,
       hasValidSession,
       address,
+      hasHydrated,
     ]
   );
 
@@ -439,7 +450,11 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      if (!isFullyAuthenticated || !hasValidSession) {
+      if (
+        !isFullyAuthenticated() ||
+        !hasValidSession() ||
+        !hasHydrated
+      ) {
         const result = {
           success: false,
           message:
@@ -450,6 +465,7 @@ export const useWalletTransactions = () => {
       }
 
       const senderAddress = fromAddress || address;
+
       if (!senderAddress) {
         const result = {
           success: false,
@@ -509,6 +525,7 @@ export const useWalletTransactions = () => {
       isFullyAuthenticated,
       hasValidSession,
       address,
+      hasHydrated,
     ]
   );
 
@@ -517,8 +534,9 @@ export const useWalletTransactions = () => {
       targetAddress?: string
     ): Promise<TransactionData[]> => {
       if (
-        !isFullyAuthenticated ||
-        !hasValidSession ||
+        !isFullyAuthenticated() ||
+        !hasValidSession() ||
+        !hasHydrated ||
         connectionStatus !== "connected"
       ) {
         return [];
@@ -547,6 +565,7 @@ export const useWalletTransactions = () => {
       hasValidSession,
       connectionStatus,
       address,
+      hasHydrated,
     ]
   );
 
@@ -583,17 +602,11 @@ export const useWalletTransactions = () => {
     async (
       to: string,
       value: string,
-      data?: string,
-      fromAddress?: string
+      data?: string
     ): Promise<string> => {
       if (!to || !value) {
         setError("Invalid gas estimation parameters");
         return "21000";
-      }
-
-      const senderAddress = fromAddress || address;
-      if (!senderAddress) {
-        // Still try the estimation but with a warning
       }
 
       try {
@@ -616,9 +629,17 @@ export const useWalletTransactions = () => {
 
   const hasValidAddress = useCallback(() => {
     return Boolean(
-      address && isFullyAuthenticated && hasValidSession
+      address &&
+        isFullyAuthenticated() &&
+        hasValidSession() &&
+        hasHydrated
     );
-  }, [address, isFullyAuthenticated, hasValidSession]);
+  }, [
+    address,
+    isFullyAuthenticated,
+    hasValidSession,
+    hasHydrated,
+  ]);
 
   return {
     isLoading,
