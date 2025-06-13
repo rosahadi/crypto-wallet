@@ -21,6 +21,10 @@ export const unlockWalletSchema = z.object({
   password: z.string().min(8),
 });
 
+export const passwordSchema = z.object({
+  password: z.string().min(8),
+});
+
 export const changePasswordSchema = z
   .object({
     currentPassword: z
