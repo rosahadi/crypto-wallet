@@ -112,7 +112,6 @@ export function toMinimalBytes(
     hex = "0" + hex;
   }
 
-  // Convert hex to bytes
   return hexToBytes(hex);
 }
 
@@ -142,45 +141,6 @@ export const formatAddress = (
   const suffix = address.slice(-suffixLength);
 
   return `${prefix}...${suffix}`;
-};
-
-/**
- * Formats a Unix timestamp to a human-readable date and time
- * @param {number|string} timestamp - Unix timestamp (in seconds)
- * @param {boolean} includeTime - Whether to include the time (default: true)
- * @returns {string} Formatted date and time
- */
-export const formatTimestamp = (
-  timestamp: number | string | undefined,
-  includeTime: boolean = true
-): string => {
-  if (!timestamp) return "N/A";
-
-  // Convert to number if it's a string
-  const timestampNum =
-    typeof timestamp === "string"
-      ? parseInt(timestamp, 10)
-      : timestamp;
-
-  // Check if timestamp is in milliseconds or seconds
-  const date = new Date(
-    timestampNum * (timestampNum < 10000000000 ? 1000 : 1)
-  );
-
-  if (isNaN(date.getTime())) return "Invalid date";
-
-  const options: Intl.DateTimeFormatOptions = {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    ...(includeTime && {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    }),
-  };
-
-  return date.toLocaleDateString("en-US", options);
 };
 
 /**
@@ -217,10 +177,16 @@ export const formatGasPrice = (
     formattedPrice = gasPrice.toFixed(decimals);
   }
 
-  // Remove trailing zeros and decimal point if necessary
   formattedPrice = formattedPrice.replace(/\.?0+$/, "");
   if (formattedPrice.endsWith("."))
     formattedPrice = formattedPrice.slice(0, -1);
 
   return `${formattedPrice} ${unit}`;
+};
+
+export const formatTimestamp = (
+  timestamp: number
+): string => {
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleString();
 };

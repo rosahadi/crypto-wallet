@@ -9,7 +9,10 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { WalletData } from "@/lib/types/wallet";
-import { formatEther } from "@/lib/utils/index";
+import {
+  formatEther,
+  formatTimestamp,
+} from "@/lib/utils/index";
 
 interface TransactionsTabProps {
   walletData: WalletData;
@@ -115,13 +118,6 @@ export default function TransactionsTab({
     }
   };
 
-  const formatTransactionTimestamp = (
-    timestamp: number
-  ): string => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString();
-  };
-
   return (
     <div className="space-y-4">
       {walletData.transactions &&
@@ -187,9 +183,7 @@ export default function TransactionsTab({
                           </div>
 
                           <div>
-                            {formatTransactionTimestamp(
-                              tx.timestamp
-                            )}
+                            {formatTimestamp(tx.timestamp)}
                           </div>
                         </div>
                       </div>
