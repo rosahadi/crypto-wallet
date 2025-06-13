@@ -6,6 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import BalanceCard from "@/components/dashboard/BalanceCard";
 import TabsContainer from "@/components/dashboard/TabsContainer";
 import SendModal from "@/components/dashboard/SendModal";
@@ -122,11 +123,16 @@ export default function WalletPage() {
         transactions: true,
       }));
     } catch (error) {
-      setTransactionError(
+      const errorMessage =
         error instanceof Error
           ? error.message
-          : "Failed to fetch transactions"
-      );
+          : "Failed to fetch transactions";
+
+      setTransactionError(errorMessage);
+      toast.error("Transaction History", {
+        description:
+          "Unable to load transaction history. Please try refreshing.",
+      });
     } finally {
       setIsLoadingTransactions(false);
       fetchingRef.current.transactions = false;
@@ -162,7 +168,8 @@ export default function WalletPage() {
 
       await fetchTransactions();
     } catch (error) {
-      console.error("Refresh failed:", error);
+      // Silent error handling for refresh operations
+      // User doesn't need to be notified of background refresh failures
     }
   }, [
     isAuthenticated,
@@ -215,7 +222,8 @@ export default function WalletPage() {
           initialLoadComplete: true,
         }));
       } catch (error) {
-        console.error("Initial data load failed:", error);
+        // Silent error handling for initial data load
+        // Component will still render with available data
       } finally {
         fetchingRef.current.initialLoad = false;
       }
@@ -334,7 +342,7 @@ export default function WalletPage() {
         handlePopState
       );
       document.removeEventListener(
-        "visibilityChange",
+        "visibilitychange",
         handleVisibilityChange
       );
     };
@@ -421,10 +429,9 @@ export default function WalletPage() {
               feeData.maxPriorityFeePerGas || "0",
           });
         } catch (error) {
-          console.error(
-            "Failed to load network fee:",
-            error
-          );
+          // Silent error handling for fee estimation
+          // Network fee will remain null and UI will handle gracefully
+          setNetworkFee(null);
         } finally {
           setLoadingFee(false);
         }
@@ -456,18 +463,17 @@ export default function WalletPage() {
       const walletAddress = address;
 
       if (!walletAddress) {
-        setTransactionResult({
-          success: false,
-          message:
+        toast.error("Wallet Error", {
+          description:
             "Wallet address not available. Please reconnect your wallet.",
         });
         return;
       }
 
       if (!formData.toAddress || !formData.amount) {
-        setTransactionResult({
-          success: false,
-          message: "Please fill in all required fields.",
+        toast.error("Invalid Input", {
+          description:
+            "Please fill in all required fields.",
         });
         return;
       }
@@ -476,9 +482,8 @@ export default function WalletPage() {
         walletAddress.toLowerCase() ===
         formData.toAddress.toLowerCase()
       ) {
-        setTransactionResult({
-          success: false,
-          message: "Cannot send to the same address.",
+        toast.error("Invalid Recipient", {
+          description: "Cannot send to the same address.",
         });
         return;
       }
@@ -508,6 +513,17 @@ export default function WalletPage() {
         setTransactionResult(result);
 
         if (result.success) {
+          toast.success("Transaction Sent", {
+            description: `Transaction submitted successfully${
+              result?.data?.txHash
+                ? `. Hash: ${result?.data?.txHash.slice(
+                    0,
+                    10
+                  )}...`
+                : ""
+            }`,
+          });
+
           setSendFormData({ toAddress: "", amount: "" });
 
           setTimeout(async () => {
@@ -515,14 +531,26 @@ export default function WalletPage() {
             await refetchAll();
             await fetchTransactions();
           }, 2000);
+        } else {
+          toast.error("Transaction Failed", {
+            description:
+              result.message ||
+              "Transaction failed. Please try again.",
+          });
         }
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Transaction failed. Please try again.";
+
+        toast.error("Transaction Error", {
+          description: errorMessage,
+        });
+
         setTransactionResult({
           success: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Transaction failed. Please try again.",
+          message: errorMessage,
         });
       } finally {
         setSendingTransaction(false);
@@ -615,7 +643,6 @@ export default function WalletPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      {/* Container to match navbar width */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <BalanceCard
           walletData={walletData}
@@ -624,7 +651,6 @@ export default function WalletPage() {
           formatGasPrice={formatGasPrice}
         />
 
-        {/* Updated Tabs Section using TabsContainer */}
         <TabsContainer
           activeTab={activeTab}
           setActiveTab={setActiveTab}
