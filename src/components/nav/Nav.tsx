@@ -16,10 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useRouter, usePathname } from "next/navigation";
 import { NetworkSelector } from "./NetworkSelector";
-import {
-  useWallet,
-  useWalletNetwork,
-} from "@/lib/hooks/useWallet";
+import { useWalletComposite } from "@/lib/hooks/useWallet";
 
 interface WalletStatus {
   isConnected: boolean;
@@ -41,16 +38,15 @@ export function Navbar() {
 
   const {
     isFullyAuthenticated,
-    hasHydrated,
     address,
     logout,
-  } = useWallet();
+    currentNetwork,
+  } = useWalletComposite();
 
-  const { currentNetwork } = useWalletNetwork();
-
+  // Handle hydration
   useEffect(() => {
-    setIsHydrated(hasHydrated);
-  }, [hasHydrated]);
+    setIsHydrated(true);
+  }, []);
 
   const walletStatus: WalletStatus = {
     isConnected: isHydrated ? isFullyAuthenticated : false,

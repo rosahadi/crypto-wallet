@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  ShieldCheck,
   Wallet,
   Key,
   Download,
@@ -192,7 +191,7 @@ export default function ConnectWalletPage() {
             <div className="space-y-6 sm:space-y-8">
               {/* Custom Tab Navigation */}
               <div className="grid grid-cols-3 gap-1 sm:gap-2 p-1 sm:p-2 bg-slate-800/50 rounded-xl backdrop-blur-sm">
-                {tabs.map((tab, index) => (
+                {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => handleTabChange(tab.id)}

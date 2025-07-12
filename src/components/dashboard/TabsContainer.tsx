@@ -3,12 +3,12 @@ import { Coins, Grid, Activity } from "lucide-react";
 import TokensTab from "@/components/dashboard/TokensTab";
 import NFTsTab from "@/components/dashboard/NFTsTab";
 import TransactionsTab from "@/components/dashboard/TransactionsTab";
-import { Token } from "@/lib/types/wallet";
+import { Token, WalletData } from "@/lib/types/wallet";
 
 interface TabsContainerProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  walletData: any;
+  walletData: WalletData;
   openSendModal: (token?: Token | null) => void;
   navigateToTransactions: () => void;
 }

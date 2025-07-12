@@ -53,8 +53,8 @@ export default function WalletCreatedView({
             <p className="text-sm text-slate-400 leading-relaxed">
               Your crypto wallet has been generated with a
               secure recovery phrase. Please store this
-              phrase safely - it's the only way to recover
-              your wallet.
+              phrase safely - it&apos;s the only way to
+              recover your wallet.
             </p>
           </div>
         </div>

@@ -8,7 +8,10 @@ import {
   AlertCircle,
   ExternalLink,
 } from "lucide-react";
-import { WalletData } from "@/lib/types/wallet";
+import {
+  TransactionData,
+  WalletData,
+} from "@/lib/types/wallet";
 import {
   formatEther,
   formatTimestamp,
@@ -27,7 +30,9 @@ export default function TransactionsTab({
     string | null
   >(null);
 
-  const getTransactionIcon = (tx: any): JSX.Element => {
+  const getTransactionIcon = (
+    tx: TransactionData
+  ): JSX.Element => {
     const isIncoming = isReceiveTransaction(tx);
     return isIncoming ? (
       <ArrowUpRight className="text-crypto-emerald rotate-180 h-5 w-5" />
@@ -53,7 +58,9 @@ export default function TransactionsTab({
     }
   };
 
-  const isReceiveTransaction = (tx: any): boolean => {
+  const isReceiveTransaction = (
+    tx: TransactionData
+  ): boolean => {
     if (tx.isIncoming) return true;
     if (tx.type === "receive") return true;
 
@@ -67,7 +74,9 @@ export default function TransactionsTab({
     return false;
   };
 
-  const getTransactionValue = (tx: any): string => {
+  const getTransactionValue = (
+    tx: TransactionData
+  ): string => {
     const isIncoming = isReceiveTransaction(tx);
     const prefix = isIncoming ? "+" : "-";
 
@@ -89,7 +98,7 @@ export default function TransactionsTab({
     return `${prefix}${formattedValue}`;
   };
 
-  const getTokenSymbol = (tx: any): string => {
+  const getTokenSymbol = (tx: TransactionData): string => {
     if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
       const firstTransfer = tx.tokenTransfers[0];
       if (firstTransfer.symbol) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { unlockWalletSchema } from "@/lib/schemas";
 import { useWallet } from "@/lib/hooks/useWallet";
-import { z } from "zod";
 import { UnlockWalletFormData } from "@/lib/types";
 
 interface UnlockWalletFormProps {

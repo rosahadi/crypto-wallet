@@ -20,7 +20,6 @@ import {
   TransactionData,
   WalletOpResult,
 } from "@/lib/types/wallet";
-import { useWalletStore } from "@/lib/store/WalletAuthStore";
 import { useWalletComposite } from "@/lib/hooks/useWallet";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import CenterContainer from "@/components/CenterContainer";
@@ -28,18 +27,26 @@ import CenterContainer from "@/components/CenterContainer";
 export default function WalletPage() {
   const router = useRouter();
 
-  const { isFullyAuthenticated, address, hasHydrated } =
-    useWalletStore();
-
   const {
+    // Auth state
+    isFullyAuthenticated,
+    hasValidSession,
+    address,
+    hasHydrated,
+
+    // Data
     balance,
     tokens,
     nfts,
     networkStatus,
     currentNetwork,
+
+    // Loading states
     isReady,
     isAnyLoading,
     hasInitialBalance,
+
+    // Methods
     sendEth,
     sendToken,
     estimateGas,
@@ -47,7 +54,6 @@ export default function WalletPage() {
     getTransactions,
     refetchAll,
     refetchBalance,
-    errors,
   } = useWalletComposite();
 
   const [activeTab, setActiveTab] = useState("tokens");
@@ -59,9 +65,6 @@ export default function WalletPage() {
   >([]);
   const [isLoadingTransactions, setIsLoadingTransactions] =
     useState(false);
-  const [transactionError, setTransactionError] = useState<
-    string | null
-  >(null);
 
   const [dataLoadStatus, setDataLoadStatus] = useState({
     balance: false,
@@ -98,8 +101,18 @@ export default function WalletPage() {
   const [loadingFee, setLoadingFee] = useState(false);
 
   const isAuthenticated = useCallback(() => {
-    return isFullyAuthenticated() && address && hasHydrated;
-  }, [isFullyAuthenticated, address, hasHydrated]);
+    return (
+      hasHydrated &&
+      isFullyAuthenticated &&
+      hasValidSession &&
+      address
+    );
+  }, [
+    hasHydrated,
+    isFullyAuthenticated,
+    hasValidSession,
+    address,
+  ]);
 
   const fetchTransactions = useCallback(async () => {
     if (!isAuthenticated() || !address || !isReady) {
@@ -112,23 +125,15 @@ export default function WalletPage() {
 
     fetchingRef.current.transactions = true;
     setIsLoadingTransactions(true);
-    setTransactionError(null);
 
     try {
       const txs = await getTransactions(address);
-
       setTransactions(txs);
       setDataLoadStatus((prev) => ({
         ...prev,
         transactions: true,
       }));
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Failed to fetch transactions";
-
-      setTransactionError(errorMessage);
+    } catch {
       toast.error("Transaction History", {
         description:
           "Unable to load transaction history. Please try refreshing.",
@@ -167,9 +172,8 @@ export default function WalletPage() {
       }));
 
       await fetchTransactions();
-    } catch (error) {
+    } catch {
       // Silent error handling for refresh operations
-      // User doesn't need to be notified of background refresh failures
     }
   }, [
     isAuthenticated,
@@ -221,9 +225,8 @@ export default function WalletPage() {
           ...prev,
           initialLoadComplete: true,
         }));
-      } catch (error) {
+      } catch {
         // Silent error handling for initial data load
-        // Component will still render with available data
       } finally {
         fetchingRef.current.initialLoad = false;
       }
@@ -245,15 +248,11 @@ export default function WalletPage() {
   ]);
 
   useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
-
-    if (!isAuthenticated()) {
+    if (hasHydrated && !isAuthenticated()) {
       router.push("/connect");
       return;
     }
-  }, [isAuthenticated, hasHydrated, router]);
+  }, [hasHydrated, isAuthenticated, router]);
 
   useEffect(() => {
     if (!isAuthenticated()) return;
@@ -428,9 +427,8 @@ export default function WalletPage() {
             maxPriorityFeePerGas:
               feeData.maxPriorityFeePerGas || "0",
           });
-        } catch (error) {
+        } catch {
           // Silent error handling for fee estimation
-          // Network fee will remain null and UI will handle gracefully
           setNetworkFee(null);
         } finally {
           setLoadingFee(false);
@@ -574,7 +572,8 @@ export default function WalletPage() {
     return currentNetwork;
   }, [currentNetwork]);
 
-  if (!hasHydrated) {
+  // Show loading while not authenticated or still checking auth
+  if (!isAuthenticated()) {
     return (
       <CenterContainer>
         <LoadingSpinner />
@@ -582,7 +581,8 @@ export default function WalletPage() {
     );
   }
 
-  if (!isAuthenticated()) {
+  // Show loading while hydration is in progress
+  if (!hasHydrated) {
     return (
       <CenterContainer>
         <LoadingSpinner />

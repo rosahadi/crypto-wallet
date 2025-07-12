@@ -6,11 +6,9 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Shield,
   Key,
   AlertTriangle,
   Check,
-  RefreshCw,
   Clipboard,
   Lock,
   Wallet,
@@ -22,7 +20,7 @@ import {
 } from "@/lib/schemas";
 import { PasswordModal } from "@/components/settings/PasswordModal";
 import { ChangePasswordModal } from "@/components/settings/ChangePasswordModal";
-import { useWallet } from "@/lib/hooks/useWallet";
+import { useWalletComposite } from "@/lib/hooks/useWallet";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import CenterContainer from "@/components/CenterContainer";
 import Web3Card from "@/components/Web3Card";
@@ -41,11 +39,10 @@ export default function WalletSettings() {
     isAuthenticated,
     address,
     isAuthLoading,
-    hasHydrated,
     getWalletDetails,
     changePassword,
     error: walletError,
-  } = useWallet();
+  } = useWalletComposite();
 
   const [showPrivateKey, setShowPrivateKey] =
     useState<boolean>(false);
@@ -75,7 +72,7 @@ export default function WalletSettings() {
   }>({});
 
   useEffect(() => {
-    if (isAuthLoading || !hasHydrated) {
+    if (isAuthLoading) {
       return;
     }
 
@@ -83,7 +80,7 @@ export default function WalletSettings() {
       router.push("/connect");
       return;
     }
-  }, [isAuthenticated, isAuthLoading, hasHydrated, router]);
+  }, [isAuthenticated, isAuthLoading, router]);
 
   const copyToClipboard = async (
     text: string,
@@ -188,7 +185,7 @@ export default function WalletSettings() {
   };
 
   // Loading State
-  if (isAuthLoading || !hasHydrated) {
+  if (isAuthLoading) {
     return (
       <CenterContainer
         variant="crypto"
@@ -242,7 +239,7 @@ export default function WalletSettings() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="min-h-screen bg-slate-950 text-white  mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Animated background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-20 w-32 h-32 bg-purple-500/10 rounded-full blur-xl animate-float" />

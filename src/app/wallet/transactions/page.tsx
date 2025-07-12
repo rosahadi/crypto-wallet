@@ -21,7 +21,6 @@ import {
 } from "@/lib/utils/index";
 import { TransactionData } from "@/lib/types/wallet";
 import { useWalletComposite } from "@/lib/hooks/useWallet";
-import { useWalletStore } from "@/lib/store/WalletAuthStore";
 import { useRouter } from "next/navigation";
 import CenterContainer from "@/components/CenterContainer";
 import LoadingSpinner from "@/components/LoadingSpinner";
@@ -29,8 +28,8 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 export default function TransactionsPage() {
   const router = useRouter();
 
-  const { isFullyAuthenticated, address, hasHydrated } =
-    useWalletStore();
+  const { isFullyAuthenticated, address } =
+    useWalletComposite();
 
   const {
     currentNetwork,
@@ -52,7 +51,7 @@ export default function TransactionsPage() {
   >(null);
 
   const isAuthenticated = useCallback(() => {
-    return isFullyAuthenticated() && address;
+    return isFullyAuthenticated && address;
   }, [isFullyAuthenticated, address]);
 
   const fetchTransactions = useCallback(async () => {
@@ -62,12 +61,7 @@ export default function TransactionsPage() {
     try {
       const txs = await getTransactions(address);
       setTransactions(txs);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Failed to fetch transactions";
-
+    } catch {
       toast.error("Transaction History", {
         description:
           "Unable to load transaction history. Please try refreshing the page.",
@@ -78,29 +72,19 @@ export default function TransactionsPage() {
   }, [isAuthenticated, address, getTransactions]);
 
   useEffect(() => {
-    if (!hasHydrated) {
-      return;
-    }
-
     if (!isAuthenticated()) {
       router.push("/connect");
       return;
     }
-  }, [isAuthenticated, hasHydrated, router]);
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
-    if (
-      isAuthenticated() &&
-      address &&
-      hasHydrated &&
-      isReady
-    ) {
+    if (isAuthenticated() && address && isReady) {
       fetchTransactions();
     }
   }, [
     isAuthenticated,
     address,
-    hasHydrated,
     isReady,
     fetchTransactions,
   ]);
@@ -169,7 +153,7 @@ export default function TransactionsPage() {
         description: "Transaction hash copied to clipboard",
       });
       setTimeout(() => setCopiedHash(null), 2000);
-    } catch (err) {
+    } catch {
       toast.error("Copy Failed", {
         description:
           "Unable to copy to clipboard. Please try again.",
@@ -191,26 +175,17 @@ export default function TransactionsPage() {
         description:
           "Transaction history updated successfully",
       });
-    } catch (error) {
-      // Silent error handling for refresh - the individual functions will handle their own errors
+    } catch {
+      // Silent error handling
     }
   };
 
-  // Get current error
   const hasError = Object.values(errors).some(
     (error) => error !== null
   );
   const errorMessage = Object.values(errors).find(
     (error) => error !== null
   );
-
-  if (!hasHydrated) {
-    return (
-      <CenterContainer>
-        <LoadingSpinner />
-      </CenterContainer>
-    );
-  }
 
   const isLoading = isAnyLoading || isLoadingTransactions;
 
@@ -223,7 +198,7 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-[var(--text-primary)]  max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 p-6">
+    <div className="min-h-screen bg-slate-950 text-[var(--text-primary)]   mx-auto  sm:px-6 lg:px-8 p-6">
       <div className="max-w-4xl mx-auto">
         {/* Search */}
         <div className="mb-6">

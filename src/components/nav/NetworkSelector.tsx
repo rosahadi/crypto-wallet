@@ -18,12 +18,12 @@ import {
   useCurrentNetwork,
   useConnectionStatus,
 } from "@/lib/store/NetworkStore";
-import { useWalletAuth } from "@/lib/hooks/useWalletAuth";
 import {
   useNetworkActions,
   useNetworkError,
   useNetworkLoading,
 } from "@/lib/hooks/useNetwork";
+import { useWalletComposite } from "@/lib/hooks/useWallet";
 
 const ENHANCED_NETWORKS: (NetworkConfig & {
   color: string;
@@ -49,7 +49,7 @@ const ENHANCED_NETWORKS: (NetworkConfig & {
 
 export function NetworkSelector() {
   const { isFullyAuthenticated, hasValidSession } =
-    useWalletAuth();
+    useWalletComposite();
 
   const currentNetwork = useCurrentNetwork();
   const connectionStatus = useConnectionStatus();

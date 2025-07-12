@@ -2,27 +2,25 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useWalletAuth } from "@/lib/hooks/useWalletAuth";
 import CenterContainer from "@/components/CenterContainer";
 import StatusMessage from "@/components/StatusMessage";
 import Web3Card from "@/components/Web3Card";
 import { Wallet, ArrowRight } from "lucide-react";
+import { useWalletComposite } from "@/lib/hooks/useWallet";
 
 export default function Home() {
   const router = useRouter();
   const {
     isAuthenticated,
     isAuthLoading,
-    hasHydrated,
     hasValidSession,
-  } = useWalletAuth();
+  } = useWalletComposite();
 
   useEffect(() => {
-    if (!hasHydrated || isAuthLoading) {
+    if (isAuthLoading) {
       return;
     }
 
-    // Add a small delay for better UX
     const timer = setTimeout(() => {
       if (isAuthenticated && hasValidSession) {
         router.push("/wallet");
@@ -35,13 +33,12 @@ export default function Home() {
   }, [
     isAuthenticated,
     hasValidSession,
-    hasHydrated,
     isAuthLoading,
     router,
   ]);
 
   // Loading state
-  if (!hasHydrated || isAuthLoading) {
+  if (isAuthLoading) {
     return (
       <CenterContainer
         variant="crypto"

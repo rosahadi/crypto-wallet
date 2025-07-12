@@ -1,10 +1,5 @@
 import React from "react";
-import {
-  Wallet,
-  Send,
-  TrendingUp,
-  DollarSign,
-} from "lucide-react";
+import { Wallet, Send, DollarSign } from "lucide-react";
 import { parseEther } from "@/lib/utils/index";
 import { WalletData, Token } from "@/lib/types/wallet";
 
@@ -17,11 +12,6 @@ export default function TokensTab({
   walletData,
   openSendModal,
 }: TokensTabProps) {
-  const totalValue =
-    walletData.tokens?.reduce((sum, token) => {
-      return sum + (token.value || 0);
-    }, 0) || 0;
-
   const TokenCard = ({
     token,
     isNative = false,

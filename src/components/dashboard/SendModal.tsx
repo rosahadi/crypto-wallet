@@ -409,7 +409,7 @@ const SendModal: React.FC<SendModalProps> = ({
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-slate-400">
-                        You're sending
+                        You&apos;re sending
                       </span>
                       <span className="text-white font-medium">
                         {sendFormData.amount} {tokenSymbol}
