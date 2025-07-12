@@ -3,6 +3,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
 } from "react";
 import { walletService } from "../wallet/WalletService";
 import { useWalletStore } from "../store/WalletAuthStore";
@@ -202,16 +203,25 @@ export const useWallet = () => {
     []
   );
 
-  return {
-    // Auth state from store
-    isAuthenticated: store.isAuthenticated,
-    isFullyAuthenticated: store.isFullyAuthenticated(),
-    hasValidSession: store.hasValidSession(),
-    address: store.address,
-    sessionId: store.sessionId,
-    hasHydrated: store._hasHydrated,
+  const isAuthenticated = store.isAuthenticated;
+  const address = store.address;
+  const sessionId = store.sessionId;
+  const hasHydrated = store._hasHydrated;
 
-    // Wallet operations
+  const authState = useMemo(
+    () => ({
+      isAuthenticated,
+      isFullyAuthenticated: store.isFullyAuthenticated(),
+      hasValidSession: store.hasValidSession(),
+      address,
+      sessionId,
+      hasHydrated,
+    }),
+    [isAuthenticated, address, sessionId, hasHydrated]
+  );
+
+  return {
+    ...authState,
     isAuthLoading: isLoading,
     error,
     hasStoredWallet: walletService.hasStoredWallet(),
@@ -224,8 +234,6 @@ export const useWallet = () => {
     changePassword,
     getWalletDetails,
     clearError,
-
-    // Store actions
     createSession: store.createSession,
     clearSession: store.clearSession,
     clearAll: store.clearAll,
@@ -234,29 +242,53 @@ export const useWallet = () => {
 
 export const useWalletBalance = () => {
   const store = useWalletStore();
-  const currentNetwork = useCurrentNetwork();
   const connectionStatus = useConnectionStatus();
   const [balance, setBalance] = useState<string>("0");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasInitialLoad, setHasInitialLoad] =
     useState(false);
+  const fetchingRef = useRef(false);
+
+  const address = store.address;
+  const isAuthenticated = store.isAuthenticated;
+
+  const authState = useMemo(
+    () => ({
+      isFullyAuthenticated: store.isFullyAuthenticated(),
+      hasValidSession: store.hasValidSession(),
+      address,
+    }),
+    [address, isAuthenticated]
+  );
+
+  const canFetch = useMemo(() => {
+    return (
+      authState.isFullyAuthenticated &&
+      authState.hasValidSession &&
+      connectionStatus === "connected" &&
+      !!authState.address
+    );
+  }, [
+    authState.isFullyAuthenticated,
+    authState.hasValidSession,
+    connectionStatus,
+    authState.address,
+  ]);
 
   const fetchBalance = useCallback(
     async (targetAddress?: string) => {
-      if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession() ||
-        connectionStatus !== "connected"
-      ) {
+      if (!canFetch || fetchingRef.current) {
         return;
       }
 
-      const addressToUse = targetAddress || store.address;
+      const addressToUse =
+        targetAddress || authState.address;
       if (!addressToUse) {
         return;
       }
 
+      fetchingRef.current = true;
       setIsLoading(true);
       setError(null);
 
@@ -278,50 +310,31 @@ export const useWalletBalance = () => {
         }
       } finally {
         setIsLoading(false);
+        fetchingRef.current = false;
       }
     },
-    [
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      store.address,
-      hasInitialLoad,
-      connectionStatus,
-      currentNetwork,
-    ]
+    [canFetch, authState.address, hasInitialLoad]
   );
 
   useEffect(() => {
-    if (
-      store.isFullyAuthenticated() &&
-      store.hasValidSession() &&
-      store.address &&
-      connectionStatus === "connected"
-    ) {
-      fetchBalance();
-    }
-  }, [
-    store.isFullyAuthenticated,
-    store.hasValidSession,
-    store.address,
-    connectionStatus,
-    fetchBalance,
-  ]);
-
-  useEffect(() => {
-    if (
-      !store.isFullyAuthenticated() ||
-      !store.hasValidSession() ||
-      connectionStatus === "disconnected"
-    ) {
+    if (!canFetch) {
       setBalance("0");
       setError(null);
       setHasInitialLoad(false);
+      fetchingRef.current = false;
     }
-  }, [
-    store.isFullyAuthenticated,
-    store.hasValidSession,
-    connectionStatus,
-  ]);
+  }, [canFetch]);
+
+  useEffect(() => {
+    if (
+      canFetch &&
+      !hasInitialLoad &&
+      !isLoading &&
+      !fetchingRef.current
+    ) {
+      fetchBalance();
+    }
+  }, [canFetch, hasInitialLoad, isLoading, fetchBalance]);
 
   return {
     balance,
@@ -332,12 +345,398 @@ export const useWalletBalance = () => {
   };
 };
 
-export const useWalletTransactions = () => {
+export const useWalletTokens = () => {
+  const store = useWalletStore();
+  const connectionStatus = useConnectionStatus();
+  const [tokens, setTokens] = useState<Token[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasInitialLoad, setHasInitialLoad] =
+    useState(false);
+  const fetchingRef = useRef(false);
+
+  const address = store.address;
+  const isAuthenticated = store.isAuthenticated;
+
+  const authState = useMemo(
+    () => ({
+      isFullyAuthenticated: store.isFullyAuthenticated(),
+      hasValidSession: store.hasValidSession(),
+      address,
+    }),
+    [address, isAuthenticated]
+  );
+
+  const canFetch = useMemo(() => {
+    return (
+      authState.isFullyAuthenticated &&
+      authState.hasValidSession &&
+      connectionStatus === "connected" &&
+      !!authState.address
+    );
+  }, [
+    authState.isFullyAuthenticated,
+    authState.hasValidSession,
+    connectionStatus,
+    authState.address,
+  ]);
+
+  const fetchTokens = useCallback(
+    async (targetAddress?: string) => {
+      if (!canFetch || fetchingRef.current) {
+        return;
+      }
+
+      const addressToUse =
+        targetAddress || authState.address;
+      if (!addressToUse) {
+        return;
+      }
+
+      fetchingRef.current = true;
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const tokensResult = await walletService.getTokens(
+          addressToUse
+        );
+        setTokens(tokensResult || []);
+        setHasInitialLoad(true);
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch tokens";
+
+        setError(errorMessage);
+
+        if (!hasInitialLoad) {
+          setTokens([]);
+        }
+      } finally {
+        setIsLoading(false);
+        fetchingRef.current = false;
+      }
+    },
+    [
+      canFetch,
+      authState.address,
+      hasInitialLoad,
+      connectionStatus,
+    ]
+  );
+
+  const getTokenBalance = useCallback(
+    async (
+      tokenAddress: string,
+      address?: string
+    ): Promise<string> => {
+      try {
+        const balance = await walletService.getTokenBalance(
+          tokenAddress,
+          address
+        );
+        return balance;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch token balance";
+        setError(errorMessage);
+        return "0";
+      }
+    },
+    []
+  );
+
+  const getTokenMetadata = useCallback(
+    async (tokenAddress: string): Promise<Token | null> => {
+      try {
+        const metadata =
+          await walletService.getTokenMetadata(
+            tokenAddress
+          );
+        return metadata;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch token metadata";
+        setError(errorMessage);
+        return null;
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!canFetch) {
+      setTokens([]);
+      setError(null);
+      setHasInitialLoad(false);
+      fetchingRef.current = false;
+    }
+  }, [canFetch]);
+
+  useEffect(() => {
+    if (
+      canFetch &&
+      !hasInitialLoad &&
+      !isLoading &&
+      !fetchingRef.current
+    ) {
+      fetchTokens();
+    }
+  }, [canFetch, hasInitialLoad, isLoading, fetchTokens]);
+
+  return {
+    tokens,
+    isLoading,
+    error,
+    hasInitialLoad,
+    refetch: fetchTokens,
+    getTokenBalance,
+    getTokenMetadata,
+  };
+};
+
+export const useWalletNFTs = (
+  options: { autoFetch?: boolean } = {}
+) => {
+  const { autoFetch = true } = options;
+  const store = useWalletStore();
+  const connectionStatus = useConnectionStatus();
+  const [nfts, setNfts] = useState<NFTData[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasInitialLoad, setHasInitialLoad] =
+    useState(false);
+  const fetchingRef = useRef(false);
+
+  const address = store.address;
+  const isAuthenticated = store.isAuthenticated;
+
+  const authState = useMemo(
+    () => ({
+      isFullyAuthenticated: store.isFullyAuthenticated(),
+      hasValidSession: store.hasValidSession(),
+      address,
+    }),
+    [address, isAuthenticated]
+  );
+
+  const canFetch = useMemo(() => {
+    return (
+      authState.isFullyAuthenticated &&
+      authState.hasValidSession &&
+      connectionStatus === "connected" &&
+      !!authState.address
+    );
+  }, [
+    authState.isFullyAuthenticated,
+    authState.hasValidSession,
+    connectionStatus,
+    authState.address,
+  ]);
+
+  const fetchNFTs = useCallback(
+    async (targetAddress?: string) => {
+      if (!canFetch || fetchingRef.current) {
+        return;
+      }
+
+      const addressToUse =
+        targetAddress || authState.address;
+      if (!addressToUse) {
+        return;
+      }
+
+      fetchingRef.current = true;
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const nftsResult = await walletService.getNFTs(
+          addressToUse
+        );
+        setNfts(nftsResult || []);
+        setHasInitialLoad(true);
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch NFTs";
+
+        setError(errorMessage);
+
+        if (!hasInitialLoad) {
+          setNfts([]);
+        }
+      } finally {
+        setIsLoading(false);
+        fetchingRef.current = false;
+      }
+    },
+    [
+      canFetch,
+      authState.address,
+      hasInitialLoad,
+      connectionStatus,
+    ]
+  );
+
+  useEffect(() => {
+    if (!canFetch) {
+      setNfts([]);
+      setError(null);
+      setHasInitialLoad(false);
+      fetchingRef.current = false;
+    }
+  }, [canFetch]);
+
+  useEffect(() => {
+    if (
+      autoFetch &&
+      canFetch &&
+      !hasInitialLoad &&
+      !isLoading &&
+      !fetchingRef.current
+    ) {
+      fetchNFTs();
+    }
+  }, [
+    autoFetch,
+    canFetch,
+    hasInitialLoad,
+    isLoading,
+    fetchNFTs,
+  ]);
+
+  return {
+    nfts,
+    isLoading,
+    error,
+    hasInitialLoad,
+    refetch: fetchNFTs,
+  };
+};
+
+export const useWalletTransactions = (
+  options: { autoFetch?: boolean } = {}
+) => {
+  const { autoFetch = false } = options;
   const store = useWalletStore();
   const connectionStatus = useConnectionStatus();
   const currentNetwork = useCurrentNetwork();
+  const [transactions, setTransactions] = useState<
+    TransactionData[]
+  >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasInitialLoad, setHasInitialLoad] =
+    useState(false);
+  const fetchingRef = useRef(false);
+
+  const address = store.address;
+  const isAuthenticated = store.isAuthenticated;
+
+  const authState = useMemo(
+    () => ({
+      isFullyAuthenticated: store.isFullyAuthenticated(),
+      hasValidSession: store.hasValidSession(),
+      address,
+    }),
+    [address, isAuthenticated]
+  );
+
+  const canFetch = useMemo(() => {
+    return (
+      authState.isFullyAuthenticated &&
+      authState.hasValidSession &&
+      connectionStatus === "connected" &&
+      !!authState.address
+    );
+  }, [
+    authState.isFullyAuthenticated,
+    authState.hasValidSession,
+    connectionStatus,
+    authState.address,
+  ]);
+
+  const fetchTransactions = useCallback(
+    async (targetAddress?: string) => {
+      if (!canFetch || fetchingRef.current) {
+        return [];
+      }
+
+      const addressToUse =
+        targetAddress || authState.address;
+      if (!addressToUse) {
+        return [];
+      }
+
+      fetchingRef.current = true;
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const transactionsResult =
+          await walletService.getTransactions(addressToUse);
+        setTransactions(transactionsResult || []);
+        setHasInitialLoad(true);
+        return transactionsResult || [];
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch transactions";
+
+        setError(errorMessage);
+
+        if (!hasInitialLoad) {
+          setTransactions([]);
+        }
+        return [];
+      } finally {
+        setIsLoading(false);
+        fetchingRef.current = false;
+      }
+    },
+    [
+      canFetch,
+      authState.address,
+      hasInitialLoad,
+      connectionStatus,
+    ]
+  );
+
+  useEffect(() => {
+    if (!canFetch) {
+      setTransactions([]);
+      setError(null);
+      setHasInitialLoad(false);
+      fetchingRef.current = false;
+    }
+  }, [canFetch]);
+
+  useEffect(() => {
+    if (
+      autoFetch &&
+      canFetch &&
+      !hasInitialLoad &&
+      !isLoading &&
+      !fetchingRef.current
+    ) {
+      fetchTransactions();
+    }
+  }, [
+    autoFetch,
+    canFetch,
+    hasInitialLoad,
+    isLoading,
+    fetchTransactions,
+  ]);
 
   const sendEth = useCallback(
     async (
@@ -356,8 +755,8 @@ export const useWalletTransactions = () => {
       }
 
       if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession()
+        !authState.isFullyAuthenticated ||
+        !authState.hasValidSession
       ) {
         const result = {
           success: false,
@@ -368,7 +767,8 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      const senderAddress = fromAddress || store.address;
+      const senderAddress =
+        fromAddress || authState.address;
 
       if (!senderAddress) {
         const result = {
@@ -426,9 +826,9 @@ export const useWalletTransactions = () => {
     [
       connectionStatus,
       currentNetwork,
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      store.address,
+      authState.isFullyAuthenticated,
+      authState.hasValidSession,
+      authState.address,
     ]
   );
 
@@ -450,8 +850,8 @@ export const useWalletTransactions = () => {
       }
 
       if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession()
+        !authState.isFullyAuthenticated ||
+        !authState.hasValidSession
       ) {
         const result = {
           success: false,
@@ -462,7 +862,8 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      const senderAddress = fromAddress || store.address;
+      const senderAddress =
+        fromAddress || authState.address;
 
       if (!senderAddress) {
         const result = {
@@ -520,9 +921,9 @@ export const useWalletTransactions = () => {
     [
       connectionStatus,
       currentNetwork,
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      store.address,
+      authState.isFullyAuthenticated,
+      authState.hasValidSession,
+      authState.address,
     ]
   );
 
@@ -530,38 +931,9 @@ export const useWalletTransactions = () => {
     async (
       targetAddress?: string
     ): Promise<TransactionData[]> => {
-      if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession() ||
-        connectionStatus !== "connected"
-      ) {
-        return [];
-      }
-
-      const addressToUse = targetAddress || store.address;
-      if (!addressToUse) {
-        return [];
-      }
-
-      try {
-        return await walletService.getTransactions(
-          addressToUse
-        );
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch transactions";
-        setError(errorMessage);
-        return [];
-      }
+      return await fetchTransactions(targetAddress);
     },
-    [
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      connectionStatus,
-      store.address,
-    ]
+    [fetchTransactions]
   );
 
   const waitForTransaction = useCallback(
@@ -619,225 +991,34 @@ export const useWalletTransactions = () => {
         return "21000";
       }
     },
-    [store.address]
+    []
   );
 
   const hasValidAddress = useCallback(() => {
     return Boolean(
-      store.address &&
-        store.isFullyAuthenticated() &&
-        store.hasValidSession()
+      authState.address &&
+        authState.isFullyAuthenticated &&
+        authState.hasValidSession
     );
   }, [
-    store.address,
-    store.isFullyAuthenticated,
-    store.hasValidSession,
+    authState.address,
+    authState.isFullyAuthenticated,
+    authState.hasValidSession,
   ]);
 
   return {
+    transactions,
     isLoading,
     error,
-    address: store.address,
+    hasInitialLoad,
+    address: authState.address,
     hasValidAddress,
     sendEth,
     sendToken,
     getTransactions,
+    refetch: fetchTransactions,
     waitForTransaction,
     estimateGas,
-  };
-};
-
-export const useWalletTokens = () => {
-  const store = useWalletStore();
-  const connectionStatus = useConnectionStatus();
-  const [tokens, setTokens] = useState<Token[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchTokens = useCallback(
-    async (address?: string) => {
-      if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession() ||
-        connectionStatus !== "connected"
-      )
-        return;
-
-      setIsLoading(true);
-      setError(null);
-      try {
-        const tokensResult = await walletService.getTokens(
-          address
-        );
-        setTokens(tokensResult);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch tokens"
-        );
-        setTokens([]);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      connectionStatus,
-    ]
-  );
-
-  const getTokenBalance = useCallback(
-    async (
-      tokenAddress: string,
-      address?: string
-    ): Promise<string> => {
-      try {
-        return await walletService.getTokenBalance(
-          tokenAddress,
-          address
-        );
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch token balance"
-        );
-        return "0";
-      }
-    },
-    []
-  );
-
-  const getTokenMetadata = useCallback(
-    async (tokenAddress: string): Promise<Token | null> => {
-      try {
-        return await walletService.getTokenMetadata(
-          tokenAddress
-        );
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch token metadata"
-        );
-        return null;
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    fetchTokens();
-  }, [fetchTokens]);
-
-  return {
-    tokens,
-    isLoading,
-    error,
-    refetch: fetchTokens,
-    getTokenBalance,
-    getTokenMetadata,
-  };
-};
-
-export const useWalletNFTs = () => {
-  const store = useWalletStore();
-  const connectionStatus = useConnectionStatus();
-  const [nfts, setNfts] = useState<NFTData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasInitialLoad, setHasInitialLoad] =
-    useState(false);
-
-  const fetchNFTs = useCallback(
-    async (targetAddress?: string) => {
-      if (
-        !store.isFullyAuthenticated() ||
-        !store.hasValidSession() ||
-        connectionStatus !== "connected"
-      ) {
-        return;
-      }
-
-      const addressToUse = targetAddress || store.address;
-      if (!addressToUse) {
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const nftsResult = await walletService.getNFTs(
-          addressToUse
-        );
-        setNfts(nftsResult);
-        setHasInitialLoad(true);
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch NFTs";
-
-        setError(errorMessage);
-
-        if (!hasInitialLoad) {
-          setNfts([]);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [
-      store.isFullyAuthenticated,
-      store.hasValidSession,
-      store.address,
-      hasInitialLoad,
-      connectionStatus,
-    ]
-  );
-
-  useEffect(() => {
-    if (
-      store.isFullyAuthenticated() &&
-      store.hasValidSession() &&
-      store.address &&
-      connectionStatus === "connected"
-    ) {
-      fetchNFTs();
-    }
-  }, [
-    store.isFullyAuthenticated,
-    store.hasValidSession,
-    store.address,
-    connectionStatus,
-    fetchNFTs,
-  ]);
-
-  useEffect(() => {
-    if (
-      !store.isFullyAuthenticated() ||
-      !store.hasValidSession() ||
-      connectionStatus === "disconnected"
-    ) {
-      setNfts([]);
-      setError(null);
-      setHasInitialLoad(false);
-    }
-  }, [
-    store.isFullyAuthenticated,
-    store.hasValidSession,
-    connectionStatus,
-  ]);
-
-  return {
-    nfts,
-    isLoading,
-    error,
-    hasInitialLoad,
-    refetch: fetchNFTs,
   };
 };
 
@@ -894,24 +1075,44 @@ export const useWalletNetwork = () => {
 export const useWalletComposite = () => {
   const wallet = useWallet();
   const balance = useWalletBalance();
-  const transactions = useWalletTransactions();
+  const transactions = useWalletTransactions({
+    autoFetch: false,
+  });
   const tokens = useWalletTokens();
-  const nfts = useWalletNFTs();
+  const nfts = useWalletNFTs({ autoFetch: false });
   const network = useWalletNetwork();
 
-  const isReady =
-    wallet.isFullyAuthenticated &&
-    wallet.hasValidSession &&
-    network.connectionStatus === "connected";
+  const isReady = useMemo(
+    () =>
+      wallet.isFullyAuthenticated &&
+      wallet.hasValidSession &&
+      network.connectionStatus === "connected",
+    [
+      wallet.isFullyAuthenticated,
+      wallet.hasValidSession,
+      network.connectionStatus,
+    ]
+  );
 
-  const isAnyLoading =
-    wallet.isAuthLoading ||
-    balance.isLoading ||
-    transactions.isLoading ||
-    tokens.isLoading ||
-    nfts.isLoading ||
-    network.isLoading ||
-    network.isSwitching;
+  const isAnyLoading = useMemo(
+    () =>
+      wallet.isAuthLoading ||
+      balance.isLoading ||
+      transactions.isLoading ||
+      tokens.isLoading ||
+      nfts.isLoading ||
+      network.isLoading ||
+      network.isSwitching,
+    [
+      wallet.isAuthLoading,
+      balance.isLoading,
+      transactions.isLoading,
+      tokens.isLoading,
+      nfts.isLoading,
+      network.isLoading,
+      network.isSwitching,
+    ]
+  );
 
   const refetchAll = useCallback(async () => {
     if (!isReady) {
@@ -929,7 +1130,7 @@ export const useWalletComposite = () => {
         ]);
       }
     } catch {
-      // Silent error handling
+      // Error handled silently
     }
   }, [
     isReady,
@@ -944,7 +1145,6 @@ export const useWalletComposite = () => {
     if (!isReady) {
       return;
     }
-
     await balance.refetch();
   }, [isReady, balance.refetch]);
 
@@ -965,6 +1165,7 @@ export const useWalletComposite = () => {
     isNetworkSwitching: network.isSwitching,
     hasInitialBalance: balance.hasInitialLoad,
     hasInitialNFTs: nfts.hasInitialLoad,
+    hasInitialTokens: tokens.hasInitialLoad,
     ...wallet,
     ...transactions,
     switchNetwork: network.switchNetwork,
