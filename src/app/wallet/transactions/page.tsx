@@ -20,7 +20,11 @@ import {
   formatTimestamp,
 } from "@/lib/utils/index";
 import { TransactionData } from "@/lib/types/wallet";
-import { useWalletComposite } from "@/lib/hooks/useWallet";
+import {
+  useWallet,
+  useWalletTransactions,
+  useWalletNetwork,
+} from "@/lib/hooks/useWallet";
 import { useRouter } from "next/navigation";
 import CenterContainer from "@/components/CenterContainer";
 import LoadingSpinner from "@/components/LoadingSpinner";
@@ -28,17 +32,15 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 export default function TransactionsPage() {
   const router = useRouter();
 
-  const { isFullyAuthenticated, address } =
-    useWalletComposite();
+  // Use individual hooks for better control
+  const { isFullyAuthenticated, address, hasHydrated } =
+    useWallet();
 
-  const {
-    currentNetwork,
-    isReady,
-    isAnyLoading,
-    getTransactions,
-    refetchAll,
-    errors,
-  } = useWalletComposite();
+  const { getTransactions, error: transactionError } =
+    useWalletTransactions();
+
+  const { currentNetwork, connectionStatus } =
+    useWalletNetwork();
 
   const [transactions, setTransactions] = useState<
     TransactionData[]
@@ -49,43 +51,65 @@ export default function TransactionsPage() {
   const [copiedHash, setCopiedHash] = useState<
     string | null
   >(null);
+  const [hasAttemptedLoad, setHasAttemptedLoad] =
+    useState(false);
 
-  const isAuthenticated = useCallback(() => {
-    return isFullyAuthenticated && address;
-  }, [isFullyAuthenticated, address]);
+  // Check if we're ready to fetch data
+  const isAuthenticated = isFullyAuthenticated && address;
+  const isConnected = connectionStatus === "connected";
+  const canFetchData = isAuthenticated && isConnected;
 
   const fetchTransactions = useCallback(async () => {
-    if (!isAuthenticated() || !address) return;
+    if (!canFetchData || !address) return;
 
     setIsLoadingTransactions(true);
+    setHasAttemptedLoad(true);
+
     try {
       const txs = await getTransactions(address);
-      setTransactions(txs);
-    } catch {
+      setTransactions(txs || []);
+    } catch (error) {
+      console.error("Failed to fetch transactions:", error);
       toast.error("Transaction History", {
         description:
           "Unable to load transaction history. Please try refreshing the page.",
       });
+      setTransactions([]);
     } finally {
       setIsLoadingTransactions(false);
     }
-  }, [isAuthenticated, address, getTransactions]);
+  }, [canFetchData, address, getTransactions]);
 
+  // Handle authentication redirect - simplified
   useEffect(() => {
-    if (!isAuthenticated()) {
+    if (!hasHydrated) return;
+
+    if (!isAuthenticated) {
       router.push("/connect");
-      return;
     }
-  }, [isAuthenticated, router]);
+  }, [hasHydrated, isAuthenticated, router]);
 
+  // Reset hasAttemptedLoad when connection status or authentication changes
   useEffect(() => {
-    if (isAuthenticated() && address && isReady) {
+    if (!canFetchData) {
+      setHasAttemptedLoad(false);
+      setTransactions([]);
+    }
+  }, [canFetchData, isAuthenticated, isConnected]);
+
+  // Fetch transactions when conditions are met
+  useEffect(() => {
+    if (
+      canFetchData &&
+      !hasAttemptedLoad &&
+      !isLoadingTransactions
+    ) {
       fetchTransactions();
     }
   }, [
-    isAuthenticated,
-    address,
-    isReady,
+    canFetchData,
+    hasAttemptedLoad,
+    isLoadingTransactions,
     fetchTransactions,
   ]);
 
@@ -167,10 +191,7 @@ export default function TransactionsPage() {
 
   const handleRefresh = async () => {
     try {
-      await Promise.all([
-        refetchAll(),
-        fetchTransactions(),
-      ]);
+      await fetchTransactions();
       toast.success("Refreshed", {
         description:
           "Transaction history updated successfully",
@@ -180,16 +201,17 @@ export default function TransactionsPage() {
     }
   };
 
-  const hasError = Object.values(errors).some(
-    (error) => error !== null
-  );
-  const errorMessage = Object.values(errors).find(
-    (error) => error !== null
-  );
+  // Show loading while waiting for store hydration
+  if (!hasHydrated) {
+    return (
+      <CenterContainer>
+        <LoadingSpinner />
+      </CenterContainer>
+    );
+  }
 
-  const isLoading = isAnyLoading || isLoadingTransactions;
-
-  if (isLoading && transactions.length === 0) {
+  // Show loading while fetching initial data
+  if (isLoadingTransactions && transactions.length === 0) {
     return (
       <CenterContainer>
         <LoadingSpinner />
@@ -198,8 +220,18 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-[var(--text-primary)]   mx-auto  sm:px-6 lg:px-8 p-6">
+    <div className="min-h-screen bg-slate-950 text-[var(--text-primary)] mx-auto sm:px-6 lg:px-8 p-6">
       <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">
+            Transaction History
+          </h1>
+          <p className="text-[var(--text-secondary)]">
+            View your recent transactions
+          </p>
+        </div>
+
         {/* Search */}
         <div className="mb-6">
           <div className="relative">
@@ -216,13 +248,24 @@ export default function TransactionsPage() {
           </div>
         </div>
 
+        {/* Connection Status */}
+        {!isConnected && isAuthenticated && (
+          <div className="mb-6 p-4 bg-yellow-900/20 border border-yellow-800/50 rounded-lg text-yellow-400">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              Network not connected. Please check your
+              connection.
+            </div>
+          </div>
+        )}
+
         {/* Error State */}
-        {hasError && (
+        {transactionError && (
           <div className="mb-6 p-4 bg-red-900/20 border border-red-800/50 rounded-lg text-crypto-orange">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <AlertCircle className="h-5 w-5 mr-2" />
-                {errorMessage}
+                {transactionError}
               </div>
               <button
                 onClick={handleRefresh}
@@ -236,9 +279,20 @@ export default function TransactionsPage() {
 
         {/* Transaction Count */}
         {filteredTransactions.length > 0 && (
-          <div className="mb-4 text-sm text-[var(--text-secondary)]">
-            Showing {filteredTransactions.length} of{" "}
-            {transactions?.length || 0} transactions
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm text-[var(--text-secondary)]">
+              Showing {filteredTransactions.length} of{" "}
+              {transactions?.length || 0} transactions
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={isLoadingTransactions}
+              className="text-sm text-crypto-cyan hover:text-crypto-blue disabled:opacity-50"
+            >
+              {isLoadingTransactions
+                ? "Loading..."
+                : "Refresh"}
+            </button>
           </div>
         )}
 
@@ -357,19 +411,31 @@ export default function TransactionsPage() {
           <div className="text-center py-12 text-[var(--text-secondary)]">
             <Clock className="h-16 w-16 text-[var(--text-muted)] mx-auto mb-4" />
             <h3 className="text-xl font-medium mb-2 text-[var(--text-primary)]">
-              No transactions found
+              {!canFetchData
+                ? "Connecting..."
+                : hasAttemptedLoad
+                ? "No transactions found"
+                : "Loading transactions..."}
             </h3>
-            <p>
+            <p className="mb-4">
               {searchTerm
                 ? "Try adjusting your search criteria"
-                : "Your transaction history will appear here"}
+                : !canFetchData
+                ? "Please wait while we establish connection"
+                : hasAttemptedLoad
+                ? "Your transaction history will appear here"
+                : "Please wait while we load your transaction history"}
             </p>
-            {!address && isAuthenticated() && (
+
+            {hasAttemptedLoad && canFetchData && (
               <button
                 onClick={handleRefresh}
-                className="mt-4 px-6 py-2 bg-crypto-gradient hover:opacity-80 rounded-lg transition-opacity"
+                disabled={isLoadingTransactions}
+                className="px-6 py-2 bg-crypto-gradient hover:opacity-80 disabled:opacity-50 rounded-lg transition-opacity"
               >
-                Load Wallet Data
+                {isLoadingTransactions
+                  ? "Loading..."
+                  : "Retry Loading"}
               </button>
             )}
           </div>
