@@ -34,21 +34,16 @@ export const useWalletStore = create<WalletState>()(
   persist(
     (set, get) => {
       if (isBrowser) {
-        // Mark this as a page load (not a browser close/reopen)
         const isPageReload =
           sessionStorage.getItem(PAGE_LOAD_KEY) === "true";
         sessionStorage.setItem(PAGE_LOAD_KEY, "true");
 
-        // Setup heartbeat system to detect browser closing
         let heartbeatInterval: NodeJS.Timeout;
 
         const startHeartbeat = () => {
-          // Clear any existing interval
-          if (heartbeatInterval) {
+          if (heartbeatInterval)
             clearInterval(heartbeatInterval);
-          }
 
-          // Update heartbeat every 5 seconds
           heartbeatInterval = setInterval(() => {
             const state = get();
             if (state.isAuthenticated && state.sessionId) {
@@ -66,21 +61,16 @@ export const useWalletStore = create<WalletState>()(
           }
         };
 
-        // Handle page unload (could be refresh or browser close)
         const handleBeforeUnload = () => {
-          // Set a flag that we're unloading
           sessionStorage.setItem(
             "wallet-unloading",
             "true"
           );
-
-          // Short delay to see if page reloads
           setTimeout(() => {
             sessionStorage.removeItem("wallet-unloading");
           }, 100);
         };
 
-        // Handle page visibility changes
         const handleVisibilityChange = () => {
           if (document.hidden) {
             stopHeartbeat();
@@ -92,10 +82,14 @@ export const useWalletStore = create<WalletState>()(
           }
         };
 
-        // Handle focus events
         const handleFocus = () => {
           const state = get();
           if (state.isAuthenticated) {
+            // Extend session and restart heartbeat
+            sessionStorage.setItem(
+              SESSION_HEARTBEAT_KEY,
+              Date.now().toString()
+            );
             startHeartbeat();
           }
         };
@@ -110,8 +104,10 @@ export const useWalletStore = create<WalletState>()(
           handleVisibilityChange
         );
         window.addEventListener("focus", handleFocus);
+        window.addEventListener("mousemove", handleFocus);
+        window.addEventListener("mousedown", handleFocus);
 
-        // Cleanup function
+        // Cleanup
         const cleanup = () => {
           stopHeartbeat();
           window.removeEventListener(
@@ -123,20 +119,24 @@ export const useWalletStore = create<WalletState>()(
             handleVisibilityChange
           );
           window.removeEventListener("focus", handleFocus);
+          window.removeEventListener(
+            "mousemove",
+            handleFocus
+          );
+          window.removeEventListener(
+            "mousedown",
+            handleFocus
+          );
         };
 
-        // Store cleanup function
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).__walletStoreCleanup = cleanup;
 
-        // If this is a page reload, maintain session
         if (isPageReload) {
-          // Check if we were in the middle of unloading
           const wasUnloading = sessionStorage.getItem(
             "wallet-unloading"
           );
           if (wasUnloading) {
-            // This was a page refresh, clean up the flag
             sessionStorage.removeItem("wallet-unloading");
           }
         }
@@ -237,7 +237,6 @@ export const useWalletStore = create<WalletState>()(
             const pageLoadFlag =
               sessionStorage.getItem(PAGE_LOAD_KEY);
 
-            // If no session storage data and no page load flag, browser was closed
             if (!storedSessionId && !pageLoadFlag) {
               set({
                 isAuthenticated: false,
@@ -247,13 +246,11 @@ export const useWalletStore = create<WalletState>()(
               return false;
             }
 
-            // Check heartbeat (allow up to 30 seconds gap for browser sleeping)
+            //  Expire session after 2 hours of inactivity
             if (lastHeartbeat) {
               const heartbeatAge =
                 Date.now() - parseInt(lastHeartbeat);
-              if (heartbeatAge > 30000) {
-                // 30 seconds
-                // Session expired due to inactivity
+              if (heartbeatAge > 2 * 60 * 60 * 1000) {
                 set({
                   isAuthenticated: false,
                   sessionId: null,
@@ -263,7 +260,6 @@ export const useWalletStore = create<WalletState>()(
               }
             }
 
-            // Verify session ID matches
             if (
               storedSessionId &&
               storedSessionId !== state.sessionId
@@ -303,15 +299,12 @@ export const useWalletStore = create<WalletState>()(
             "wallet-unloading"
           );
 
-          // If we have persisted auth but no session storage and no page load flag
-          // it means browser was closed and reopened
           if (
             state.isAuthenticated &&
             !storedSessionId &&
             !pageLoadFlag &&
             !wasUnloading
           ) {
-            // Browser was closed, clear auth
             state.isAuthenticated = false;
             state.sessionId = null;
             state.sessionStartTime = null;
@@ -319,7 +312,6 @@ export const useWalletStore = create<WalletState>()(
             state.isAuthenticated &&
             state.sessionId
           ) {
-            // Restore session storage for page refresh case
             if (!storedSessionId) {
               sessionStorage.setItem(
                 SESSION_ID_KEY,
@@ -329,7 +321,6 @@ export const useWalletStore = create<WalletState>()(
             if (!pageLoadFlag) {
               sessionStorage.setItem(PAGE_LOAD_KEY, "true");
             }
-            // Update heartbeat
             sessionStorage.setItem(
               SESSION_HEARTBEAT_KEY,
               Date.now().toString()
