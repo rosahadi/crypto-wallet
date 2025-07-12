@@ -1,59 +1,17 @@
 import { create } from "zustand";
-import {
-  persist,
-  subscribeWithSelector,
-} from "zustand/middleware";
+import { persist } from "zustand/middleware";
 
 interface WalletState {
   address: string | null;
-  isInitialized: boolean;
   isAuthenticated: boolean;
-  isWalletReady: boolean;
-  lastActivity: number | null;
+  sessionId: string | null;
+  sessionStartTime: number | null;
+  _hasHydrated: boolean;
 
-  isAuthLoading: boolean;
-  hasHydrated: boolean;
-
-  /**
-   * Sets wallet information
-   * @param {Object} info - Wallet information object
-   * @param {string} info.address - The wallet address
-   */
-  setWalletInfo: (info: { address: string }) => void;
-
-  /**
-   * Sets the authentication status
-   * @param {boolean} authenticated - Authentication status
-   */
-  setAuthenticated: (authenticated: boolean) => void;
-
-  /**
-   * Sets the wallet ready status
-   * @param {boolean} ready - Wallet ready status
-   */
-  setWalletReady: (ready: boolean) => void;
-
-  /**
-   * Sets the initialization status
-   * @param {boolean} initialized - Initialization status
-   */
-  setInitialized: (initialized: boolean) => void;
-
-  /**
-   * Sets the authentication loading status
-   * @param {boolean} loading - Loading status
-   */
-  setAuthLoading: (loading: boolean) => void;
-
-  /**
-   * Creates a new session with wallet information
-   * @param {Object} info - Session information object
-   * @param {string} info.address - The wallet address
-   */
   createSession: (info: { address: string }) => void;
-
   clearSession: () => void;
   clearAll: () => void;
+  setHasHydrated: (hasHydrated: boolean) => void;
 
   isFullyAuthenticated: () => boolean;
   hasValidSession: () => boolean;
@@ -61,257 +19,324 @@ interface WalletState {
 
 const isBrowser = typeof window !== "undefined";
 
-const SESSION_ACTIVITY_KEY = "wallet-session-activity";
+const generateSessionId = (): string => {
+  return (
+    Date.now().toString(36) +
+    Math.random().toString(36).substr(2)
+  );
+};
+
+const SESSION_HEARTBEAT_KEY = "wallet-session-heartbeat";
+const SESSION_ID_KEY = "wallet-session-id";
+const PAGE_LOAD_KEY = "wallet-page-load";
 
 export const useWalletStore = create<WalletState>()(
-  subscribeWithSelector(
-    persist(
-      (set, get) => {
-        if (isBrowser) {
-          const updateActivity = () => {
-            const now = Date.now();
-            set({ lastActivity: now });
-            localStorage.setItem(
-              SESSION_ACTIVITY_KEY,
-              now.toString()
-            );
-          };
+  persist(
+    (set, get) => {
+      if (isBrowser) {
+        // Mark this as a page load (not a browser close/reopen)
+        const isPageReload =
+          sessionStorage.getItem(PAGE_LOAD_KEY) === "true";
+        sessionStorage.setItem(PAGE_LOAD_KEY, "true");
 
-          const isSessionActive = (): boolean => {
-            const lastActivityStr = localStorage.getItem(
-              SESSION_ACTIVITY_KEY
-            );
-            if (!lastActivityStr) return false;
+        // Setup heartbeat system to detect browser closing
+        let heartbeatInterval: NodeJS.Timeout;
 
-            const lastActivity = parseInt(lastActivityStr);
-            const now = Date.now();
+        const startHeartbeat = () => {
+          // Clear any existing interval
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+          }
 
-            return now - lastActivity < 30000;
-          };
+          // Update heartbeat every 5 seconds
+          heartbeatInterval = setInterval(() => {
+            const state = get();
+            if (state.isAuthenticated && state.sessionId) {
+              sessionStorage.setItem(
+                SESSION_HEARTBEAT_KEY,
+                Date.now().toString()
+              );
+            }
+          }, 5000);
+        };
 
-          const handleUserActivity = () => {
+        const stopHeartbeat = () => {
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+          }
+        };
+
+        // Handle page unload (could be refresh or browser close)
+        const handleBeforeUnload = () => {
+          // Set a flag that we're unloading
+          sessionStorage.setItem(
+            "wallet-unloading",
+            "true"
+          );
+
+          // Short delay to see if page reloads
+          setTimeout(() => {
+            sessionStorage.removeItem("wallet-unloading");
+          }, 100);
+        };
+
+        // Handle page visibility changes
+        const handleVisibilityChange = () => {
+          if (document.hidden) {
+            stopHeartbeat();
+          } else {
             const state = get();
             if (state.isAuthenticated) {
-              updateActivity();
+              startHeartbeat();
             }
-          };
+          }
+        };
 
-          const activityEvents = [
-            "focus",
-            "click",
-            "keydown",
-            "mousemove",
-            "scroll",
-          ];
-          activityEvents.forEach((event) => {
-            window.addEventListener(
-              event,
-              handleUserActivity,
-              { passive: true }
-            );
-          });
+        // Handle focus events
+        const handleFocus = () => {
+          const state = get();
+          if (state.isAuthenticated) {
+            startHeartbeat();
+          }
+        };
 
-          const handleVisibilityChange = () => {
-            if (!document.hidden) {
-              const state = get();
-              if (state.isAuthenticated) {
-                if (isSessionActive()) {
-                  updateActivity();
-                } else {
-                  set({
-                    isAuthenticated: false,
-                    isWalletReady: false,
-                    lastActivity: null,
-                  });
-                }
-              }
-            }
-          };
+        // Add event listeners
+        window.addEventListener(
+          "beforeunload",
+          handleBeforeUnload
+        );
+        window.addEventListener(
+          "visibilitychange",
+          handleVisibilityChange
+        );
+        window.addEventListener("focus", handleFocus);
 
-          document.addEventListener(
+        // Cleanup function
+        const cleanup = () => {
+          stopHeartbeat();
+          window.removeEventListener(
+            "beforeunload",
+            handleBeforeUnload
+          );
+          window.removeEventListener(
             "visibilitychange",
             handleVisibilityChange
           );
+          window.removeEventListener("focus", handleFocus);
+        };
 
-          const cleanup = () => {
-            activityEvents.forEach((event) => {
-              window.removeEventListener(
-                event,
-                handleUserActivity
-              );
-            });
-            document.removeEventListener(
-              "visibilitychange",
-              handleVisibilityChange
-            );
-          };
+        // Store cleanup function
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__walletStoreCleanup = cleanup;
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (window as any).__walletStoreCleanup = cleanup;
-
-          setTimeout(() => {
-            const state = get();
-            set({ isAuthLoading: true });
-
-            if (state.isAuthenticated) {
-              if (isSessionActive()) {
-                updateActivity();
-                set({ isAuthLoading: false });
-              } else {
-                set({
-                  isAuthenticated: false,
-                  isWalletReady: false,
-                  lastActivity: null,
-                  isAuthLoading: false,
-                });
-              }
-            } else {
-              set({ isAuthLoading: false });
-            }
-          }, 100);
+        // If this is a page reload, maintain session
+        if (isPageReload) {
+          // Check if we were in the middle of unloading
+          const wasUnloading = sessionStorage.getItem(
+            "wallet-unloading"
+          );
+          if (wasUnloading) {
+            // This was a page refresh, clean up the flag
+            sessionStorage.removeItem("wallet-unloading");
+          }
         }
+      }
 
-        return {
-          address: null,
-          isInitialized: false,
-          isAuthenticated: false,
-          isWalletReady: false,
-          lastActivity: null,
-          isAuthLoading: true,
-          hasHydrated: false,
+      return {
+        address: null,
+        isAuthenticated: false,
+        sessionId: null,
+        sessionStartTime: null,
+        _hasHydrated: false,
 
-          setWalletInfo: (info) => {
-            set({
-              address: info.address,
-            });
-          },
+        createSession: (info) => {
+          const sessionId = generateSessionId();
+          const sessionStartTime = Date.now();
 
-          setAuthenticated: (authenticated) => {
-            if (authenticated) {
-              const now = Date.now();
-              set({
-                isAuthenticated: authenticated,
-                lastActivity: now,
-                isAuthLoading: false,
-              });
-              localStorage.setItem(
-                SESSION_ACTIVITY_KEY,
-                now.toString()
-              );
-            } else {
+          if (isBrowser) {
+            sessionStorage.setItem(
+              SESSION_ID_KEY,
+              sessionId
+            );
+            sessionStorage.setItem(
+              SESSION_HEARTBEAT_KEY,
+              Date.now().toString()
+            );
+            sessionStorage.setItem(PAGE_LOAD_KEY, "true");
+          }
+
+          set({
+            address: info.address,
+            isAuthenticated: true,
+            sessionId,
+            sessionStartTime,
+          });
+        },
+
+        clearSession: () => {
+          if (isBrowser) {
+            sessionStorage.removeItem(SESSION_ID_KEY);
+            sessionStorage.removeItem(
+              SESSION_HEARTBEAT_KEY
+            );
+            sessionStorage.removeItem(PAGE_LOAD_KEY);
+          }
+
+          set({
+            isAuthenticated: false,
+            sessionId: null,
+            sessionStartTime: null,
+          });
+        },
+
+        clearAll: () => {
+          if (isBrowser) {
+            sessionStorage.clear();
+          }
+
+          set({
+            address: null,
+            isAuthenticated: false,
+            sessionId: null,
+            sessionStartTime: null,
+          });
+        },
+
+        setHasHydrated: (hasHydrated: boolean) => {
+          set({ _hasHydrated: hasHydrated });
+        },
+
+        isFullyAuthenticated: () => {
+          const state = get();
+          return (
+            state.isAuthenticated &&
+            !!state.address &&
+            !!state.sessionId &&
+            !!state.sessionStartTime
+          );
+        },
+
+        hasValidSession: () => {
+          const state = get();
+
+          if (
+            !state.isAuthenticated ||
+            !state.address ||
+            !state.sessionId ||
+            !state.sessionStartTime
+          ) {
+            return false;
+          }
+
+          if (isBrowser) {
+            const storedSessionId =
+              sessionStorage.getItem(SESSION_ID_KEY);
+            const lastHeartbeat = sessionStorage.getItem(
+              SESSION_HEARTBEAT_KEY
+            );
+            const pageLoadFlag =
+              sessionStorage.getItem(PAGE_LOAD_KEY);
+
+            // If no session storage data and no page load flag, browser was closed
+            if (!storedSessionId && !pageLoadFlag) {
               set({
                 isAuthenticated: false,
-                isWalletReady: false,
-                lastActivity: null,
-                isAuthLoading: false,
+                sessionId: null,
+                sessionStartTime: null,
               });
-              localStorage.removeItem(SESSION_ACTIVITY_KEY);
-            }
-          },
-
-          setWalletReady: (ready) => {
-            set({ isWalletReady: ready });
-          },
-
-          setInitialized: (initialized) => {
-            set({ isInitialized: initialized });
-          },
-
-          setAuthLoading: (loading) => {
-            set({ isAuthLoading: loading });
-          },
-
-          createSession: (info) => {
-            const now = Date.now();
-            set({
-              address: info.address,
-              isInitialized: true,
-              isAuthenticated: true,
-              isWalletReady: true,
-              lastActivity: now,
-              isAuthLoading: false,
-            });
-            localStorage.setItem(
-              SESSION_ACTIVITY_KEY,
-              now.toString()
-            );
-          },
-
-          clearSession: () => {
-            set({
-              isAuthenticated: false,
-              isWalletReady: false,
-              lastActivity: null,
-              isAuthLoading: false,
-            });
-            localStorage.removeItem(SESSION_ACTIVITY_KEY);
-          },
-
-          clearAll: () => {
-            set({
-              address: null,
-              isInitialized: false,
-              isAuthenticated: false,
-              isWalletReady: false,
-              lastActivity: null,
-              isAuthLoading: false,
-            });
-            localStorage.removeItem(SESSION_ACTIVITY_KEY);
-          },
-
-          isFullyAuthenticated: () => {
-            const state = get();
-            return (
-              state.isAuthenticated &&
-              !!state.address &&
-              state.isInitialized
-            );
-          },
-
-          hasValidSession: () => {
-            const state = get();
-            if (
-              !state.isAuthenticated ||
-              !state.address ||
-              !state.isInitialized
-            ) {
               return false;
             }
 
-            if (isBrowser) {
-              const lastActivityStr = localStorage.getItem(
-                SESSION_ACTIVITY_KEY
-              );
-              if (!lastActivityStr) {
+            // Check heartbeat (allow up to 30 seconds gap for browser sleeping)
+            if (lastHeartbeat) {
+              const heartbeatAge =
+                Date.now() - parseInt(lastHeartbeat);
+              if (heartbeatAge > 30000) {
+                // 30 seconds
+                // Session expired due to inactivity
+                set({
+                  isAuthenticated: false,
+                  sessionId: null,
+                  sessionStartTime: null,
+                });
                 return false;
               }
-
-              const lastActivity =
-                parseInt(lastActivityStr);
-              const now = Date.now();
-
-              return now - lastActivity < 30000;
             }
 
-            return state.isWalletReady;
-          },
-        };
-      },
-      {
-        name: "crypto-wallet-auth-store",
-        partialize: (state) => ({
-          address: state.address,
-          isInitialized: state.isInitialized,
-          isAuthenticated: state.isAuthenticated,
-          isWalletReady: state.isWalletReady,
-          lastActivity: state.lastActivity,
-        }),
-        onRehydrateStorage: () => (state) => {
-          if (state) {
-            state.hasHydrated = true;
+            // Verify session ID matches
+            if (
+              storedSessionId &&
+              storedSessionId !== state.sessionId
+            ) {
+              set({
+                isAuthenticated: false,
+                sessionId: null,
+                sessionStartTime: null,
+              });
+              return false;
+            }
           }
+
+          return true;
         },
-      }
-    )
+      };
+    },
+    {
+      name: "crypto-wallet-auth-store",
+      partialize: (state) => ({
+        address: state.address,
+        isAuthenticated: state.isAuthenticated,
+        sessionId: state.sessionId,
+        sessionStartTime: state.sessionStartTime,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.setHasHydrated(true);
+        }
+
+        if (state && isBrowser) {
+          const storedSessionId =
+            sessionStorage.getItem(SESSION_ID_KEY);
+          const pageLoadFlag =
+            sessionStorage.getItem(PAGE_LOAD_KEY);
+          const wasUnloading = sessionStorage.getItem(
+            "wallet-unloading"
+          );
+
+          // If we have persisted auth but no session storage and no page load flag
+          // it means browser was closed and reopened
+          if (
+            state.isAuthenticated &&
+            !storedSessionId &&
+            !pageLoadFlag &&
+            !wasUnloading
+          ) {
+            // Browser was closed, clear auth
+            state.isAuthenticated = false;
+            state.sessionId = null;
+            state.sessionStartTime = null;
+          } else if (
+            state.isAuthenticated &&
+            state.sessionId
+          ) {
+            // Restore session storage for page refresh case
+            if (!storedSessionId) {
+              sessionStorage.setItem(
+                SESSION_ID_KEY,
+                state.sessionId
+              );
+            }
+            if (!pageLoadFlag) {
+              sessionStorage.setItem(PAGE_LOAD_KEY, "true");
+            }
+            // Update heartbeat
+            sessionStorage.setItem(
+              SESSION_HEARTBEAT_KEY,
+              Date.now().toString()
+            );
+          }
+        }
+      },
+    }
   )
 );

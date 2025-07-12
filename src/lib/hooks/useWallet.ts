@@ -5,6 +5,7 @@ import {
   useMemo,
 } from "react";
 import { walletService } from "../wallet/WalletService";
+import { useWalletStore } from "../store/WalletAuthStore";
 import {
   useCurrentNetwork,
   useNetworkStatus,
@@ -26,11 +27,9 @@ import {
   useInitializeNetwork,
   useResetNetworkState,
 } from "./useNetwork";
-import { useWalletAuth } from "./useWalletAuth";
-import { useWalletStore } from "../store/WalletAuthStore";
 
 export const useWallet = () => {
-  const auth = useWalletAuth();
+  const store = useWalletStore();
   const initializeNetwork = useInitializeNetwork();
   const resetNetworkState = useResetNetworkState();
   const [isLoading, setIsLoading] = useState(false);
@@ -97,16 +96,14 @@ export const useWallet = () => {
   const importWallet = useCallback(
     async (
       mnemonic: string,
-      password: string,
-      derivationPath?: string
+      password: string
     ): Promise<WalletOpResult> => {
       setIsLoading(true);
       setError(null);
       try {
         const result = await walletService.importWallet(
           mnemonic,
-          password,
-          derivationPath
+          password
         );
         if (!result.success) {
           setError(result.message);
@@ -131,16 +128,18 @@ export const useWallet = () => {
   const logout = useCallback((): WalletOpResult => {
     setError(null);
     const result = walletService.logout();
+    store.clearSession();
     resetNetworkState();
     return result;
-  }, [resetNetworkState]);
+  }, [store, resetNetworkState]);
 
   const deleteWallet = useCallback((): WalletOpResult => {
     setError(null);
     const result = walletService.deleteWallet();
+    store.clearAll();
     resetNetworkState();
     return result;
-  }, [resetNetworkState]);
+  }, [store, resetNetworkState]);
 
   const changePassword = useCallback(
     async (
@@ -204,12 +203,16 @@ export const useWallet = () => {
   );
 
   return {
-    isAuthenticated: auth.isAuthenticated,
-    isAuthLoading: auth.isAuthLoading || isLoading,
-    hasHydrated: auth.hasHydrated,
-    isFullyAuthenticated: auth.isFullyAuthenticated,
-    hasValidSession: auth.hasValidSession,
-    address: auth.address,
+    // Auth state from store
+    isAuthenticated: store.isAuthenticated,
+    isFullyAuthenticated: store.isFullyAuthenticated(),
+    hasValidSession: store.hasValidSession(),
+    address: store.address,
+    sessionId: store.sessionId,
+    hasHydrated: store._hasHydrated,
+
+    // Wallet operations
+    isAuthLoading: isLoading,
     error,
     hasStoredWallet: walletService.hasStoredWallet(),
     walletInfo,
@@ -221,12 +224,16 @@ export const useWallet = () => {
     changePassword,
     getWalletDetails,
     clearError,
+
+    // Store actions
+    createSession: store.createSession,
+    clearSession: store.clearSession,
+    clearAll: store.clearAll,
   };
 };
 
 export const useWalletBalance = () => {
-  const { isFullyAuthenticated, hasValidSession, address } =
-    useWalletAuth();
+  const store = useWalletStore();
   const currentNetwork = useCurrentNetwork();
   const connectionStatus = useConnectionStatus();
   const [balance, setBalance] = useState<string>("0");
@@ -238,14 +245,14 @@ export const useWalletBalance = () => {
   const fetchBalance = useCallback(
     async (targetAddress?: string) => {
       if (
-        !isFullyAuthenticated ||
-        !hasValidSession ||
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession() ||
         connectionStatus !== "connected"
       ) {
         return;
       }
 
-      const addressToUse = targetAddress || address;
+      const addressToUse = targetAddress || store.address;
       if (!addressToUse) {
         return;
       }
@@ -256,7 +263,6 @@ export const useWalletBalance = () => {
       try {
         const balanceResult =
           await walletService.getBalance(addressToUse);
-
         setBalance(balanceResult);
         setHasInitialLoad(true);
       } catch (err) {
@@ -275,9 +281,9 @@ export const useWalletBalance = () => {
       }
     },
     [
-      isFullyAuthenticated,
-      hasValidSession,
-      address,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
+      store.address,
       hasInitialLoad,
       connectionStatus,
       currentNetwork,
@@ -286,25 +292,25 @@ export const useWalletBalance = () => {
 
   useEffect(() => {
     if (
-      isFullyAuthenticated &&
-      hasValidSession &&
-      address &&
+      store.isFullyAuthenticated() &&
+      store.hasValidSession() &&
+      store.address &&
       connectionStatus === "connected"
     ) {
       fetchBalance();
     }
   }, [
-    isFullyAuthenticated,
-    hasValidSession,
-    address,
+    store.isFullyAuthenticated,
+    store.hasValidSession,
+    store.address,
     connectionStatus,
     fetchBalance,
   ]);
 
   useEffect(() => {
     if (
-      !isFullyAuthenticated ||
-      !hasValidSession ||
+      !store.isFullyAuthenticated() ||
+      !store.hasValidSession() ||
       connectionStatus === "disconnected"
     ) {
       setBalance("0");
@@ -312,8 +318,8 @@ export const useWalletBalance = () => {
       setHasInitialLoad(false);
     }
   }, [
-    isFullyAuthenticated,
-    hasValidSession,
+    store.isFullyAuthenticated,
+    store.hasValidSession,
     connectionStatus,
   ]);
 
@@ -327,12 +333,7 @@ export const useWalletBalance = () => {
 };
 
 export const useWalletTransactions = () => {
-  const {
-    isFullyAuthenticated,
-    hasValidSession,
-    address,
-    hasHydrated,
-  } = useWalletStore();
+  const store = useWalletStore();
   const connectionStatus = useConnectionStatus();
   const currentNetwork = useCurrentNetwork();
   const [isLoading, setIsLoading] = useState(false);
@@ -355,9 +356,8 @@ export const useWalletTransactions = () => {
       }
 
       if (
-        !isFullyAuthenticated() ||
-        !hasValidSession() ||
-        !hasHydrated
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession()
       ) {
         const result = {
           success: false,
@@ -368,7 +368,7 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      const senderAddress = fromAddress || address;
+      const senderAddress = fromAddress || store.address;
 
       if (!senderAddress) {
         const result = {
@@ -426,10 +426,9 @@ export const useWalletTransactions = () => {
     [
       connectionStatus,
       currentNetwork,
-      isFullyAuthenticated,
-      hasValidSession,
-      address,
-      hasHydrated,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
+      store.address,
     ]
   );
 
@@ -451,9 +450,8 @@ export const useWalletTransactions = () => {
       }
 
       if (
-        !isFullyAuthenticated() ||
-        !hasValidSession() ||
-        !hasHydrated
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession()
       ) {
         const result = {
           success: false,
@@ -464,7 +462,7 @@ export const useWalletTransactions = () => {
         return result;
       }
 
-      const senderAddress = fromAddress || address;
+      const senderAddress = fromAddress || store.address;
 
       if (!senderAddress) {
         const result = {
@@ -522,10 +520,9 @@ export const useWalletTransactions = () => {
     [
       connectionStatus,
       currentNetwork,
-      isFullyAuthenticated,
-      hasValidSession,
-      address,
-      hasHydrated,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
+      store.address,
     ]
   );
 
@@ -534,15 +531,14 @@ export const useWalletTransactions = () => {
       targetAddress?: string
     ): Promise<TransactionData[]> => {
       if (
-        !isFullyAuthenticated() ||
-        !hasValidSession() ||
-        !hasHydrated ||
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession() ||
         connectionStatus !== "connected"
       ) {
         return [];
       }
 
-      const addressToUse = targetAddress || address;
+      const addressToUse = targetAddress || store.address;
       if (!addressToUse) {
         return [];
       }
@@ -561,11 +557,10 @@ export const useWalletTransactions = () => {
       }
     },
     [
-      isFullyAuthenticated,
-      hasValidSession,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
       connectionStatus,
-      address,
-      hasHydrated,
+      store.address,
     ]
   );
 
@@ -624,27 +619,25 @@ export const useWalletTransactions = () => {
         return "21000";
       }
     },
-    [address]
+    [store.address]
   );
 
   const hasValidAddress = useCallback(() => {
     return Boolean(
-      address &&
-        isFullyAuthenticated() &&
-        hasValidSession() &&
-        hasHydrated
+      store.address &&
+        store.isFullyAuthenticated() &&
+        store.hasValidSession()
     );
   }, [
-    address,
-    isFullyAuthenticated,
-    hasValidSession,
-    hasHydrated,
+    store.address,
+    store.isFullyAuthenticated,
+    store.hasValidSession,
   ]);
 
   return {
     isLoading,
     error,
-    address,
+    address: store.address,
     hasValidAddress,
     sendEth,
     sendToken,
@@ -655,8 +648,7 @@ export const useWalletTransactions = () => {
 };
 
 export const useWalletTokens = () => {
-  const { isFullyAuthenticated, hasValidSession } =
-    useWalletAuth();
+  const store = useWalletStore();
   const connectionStatus = useConnectionStatus();
   const [tokens, setTokens] = useState<Token[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -665,8 +657,8 @@ export const useWalletTokens = () => {
   const fetchTokens = useCallback(
     async (address?: string) => {
       if (
-        !isFullyAuthenticated ||
-        !hasValidSession ||
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession() ||
         connectionStatus !== "connected"
       )
         return;
@@ -690,8 +682,8 @@ export const useWalletTokens = () => {
       }
     },
     [
-      isFullyAuthenticated,
-      hasValidSession,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
       connectionStatus,
     ]
   );
@@ -751,8 +743,7 @@ export const useWalletTokens = () => {
 };
 
 export const useWalletNFTs = () => {
-  const { isFullyAuthenticated, hasValidSession, address } =
-    useWalletAuth();
+  const store = useWalletStore();
   const connectionStatus = useConnectionStatus();
   const [nfts, setNfts] = useState<NFTData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -763,14 +754,14 @@ export const useWalletNFTs = () => {
   const fetchNFTs = useCallback(
     async (targetAddress?: string) => {
       if (
-        !isFullyAuthenticated ||
-        !hasValidSession ||
+        !store.isFullyAuthenticated() ||
+        !store.hasValidSession() ||
         connectionStatus !== "connected"
       ) {
         return;
       }
 
-      const addressToUse = targetAddress || address;
+      const addressToUse = targetAddress || store.address;
       if (!addressToUse) {
         return;
       }
@@ -782,7 +773,6 @@ export const useWalletNFTs = () => {
         const nftsResult = await walletService.getNFTs(
           addressToUse
         );
-
         setNfts(nftsResult);
         setHasInitialLoad(true);
       } catch (err) {
@@ -801,9 +791,9 @@ export const useWalletNFTs = () => {
       }
     },
     [
-      isFullyAuthenticated,
-      hasValidSession,
-      address,
+      store.isFullyAuthenticated,
+      store.hasValidSession,
+      store.address,
       hasInitialLoad,
       connectionStatus,
     ]
@@ -811,25 +801,25 @@ export const useWalletNFTs = () => {
 
   useEffect(() => {
     if (
-      isFullyAuthenticated &&
-      hasValidSession &&
-      address &&
+      store.isFullyAuthenticated() &&
+      store.hasValidSession() &&
+      store.address &&
       connectionStatus === "connected"
     ) {
       fetchNFTs();
     }
   }, [
-    isFullyAuthenticated,
-    hasValidSession,
-    address,
+    store.isFullyAuthenticated,
+    store.hasValidSession,
+    store.address,
     connectionStatus,
     fetchNFTs,
   ]);
 
   useEffect(() => {
     if (
-      !isFullyAuthenticated ||
-      !hasValidSession ||
+      !store.isFullyAuthenticated() ||
+      !store.hasValidSession() ||
       connectionStatus === "disconnected"
     ) {
       setNfts([]);
@@ -837,8 +827,8 @@ export const useWalletNFTs = () => {
       setHasInitialLoad(false);
     }
   }, [
-    isFullyAuthenticated,
-    hasValidSession,
+    store.isFullyAuthenticated,
+    store.hasValidSession,
     connectionStatus,
   ]);
 
@@ -933,7 +923,6 @@ export const useWalletComposite = () => {
 
       if (network.connectionStatus === "connected") {
         await balance.refetch();
-
         await Promise.all([
           tokens.refetch(),
           nfts.refetch(),

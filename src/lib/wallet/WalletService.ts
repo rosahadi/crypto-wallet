@@ -90,17 +90,16 @@ export class WalletService {
   }
 
   private ensureWalletReady(): void {
-    const store = useWalletStore.getState();
-
     if (!this.isAuthenticated()) {
       throw new Error(
         "Wallet not authenticated - please unlock your wallet first"
       );
     }
 
+    const store = useWalletStore.getState();
     if (!store.hasValidSession()) {
       throw new Error(
-        "Wallet not ready - please enter your password first"
+        "Session expired - please unlock your wallet again"
       );
     }
   }
@@ -322,13 +321,11 @@ export class WalletService {
    * Imports a wallet from mnemonic phrase
    * @param {string} mnemonic - BIP39 mnemonic phrase
    * @param {string} password - Password to encrypt the wallet
-   * @param {string} [derivationPath="m/44'/60'/0'/0/0"] - HD wallet derivation path
    * @returns {Promise<WalletOpResult>} Import result
    */
   async importWallet(
     mnemonic: string,
-    password: string,
-    derivationPath: string = "m/44'/60'/0'/0/0"
+    password: string
   ): Promise<WalletOpResult> {
     try {
       this.clearSession();
