@@ -32,7 +32,6 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 export default function TransactionsPage() {
   const router = useRouter();
 
-  // Use individual hooks for better control
   const { isFullyAuthenticated, address, hasHydrated } =
     useWallet();
 
@@ -54,7 +53,6 @@ export default function TransactionsPage() {
   const [hasAttemptedLoad, setHasAttemptedLoad] =
     useState(false);
 
-  // Check if we're ready to fetch data
   const isAuthenticated = isFullyAuthenticated && address;
   const isConnected = connectionStatus === "connected";
   const canFetchData = isAuthenticated && isConnected;
@@ -80,7 +78,6 @@ export default function TransactionsPage() {
     }
   }, [canFetchData, address, getTransactions]);
 
-  // Handle authentication redirect - simplified
   useEffect(() => {
     if (!hasHydrated) return;
 
@@ -89,7 +86,6 @@ export default function TransactionsPage() {
     }
   }, [hasHydrated, isAuthenticated, router]);
 
-  // Reset hasAttemptedLoad when connection status or authentication changes
   useEffect(() => {
     if (!canFetchData) {
       setHasAttemptedLoad(false);
@@ -97,7 +93,6 @@ export default function TransactionsPage() {
     }
   }, [canFetchData, isAuthenticated, isConnected]);
 
-  // Fetch transactions when conditions are met
   useEffect(() => {
     if (
       canFetchData &&

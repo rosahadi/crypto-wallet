@@ -3,6 +3,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -20,41 +21,60 @@ import {
   TransactionData,
   WalletOpResult,
 } from "@/lib/types/wallet";
-import { useWalletComposite } from "@/lib/hooks/useWallet";
+import {
+  useWallet,
+  useWalletBalance,
+  useWalletTransactions,
+  useWalletTokens,
+  useWalletNFTs,
+  useWalletNetwork,
+} from "@/lib/hooks/useWallet";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import CenterContainer from "@/components/CenterContainer";
 
 export default function WalletPage() {
   const router = useRouter();
+  const hasInitializedRef = useRef(false);
+  const isRefreshingRef = useRef(false);
+  const lastFetchTimestamp = useRef<Record<string, number>>(
+    {}
+  );
 
+  // Use individual hooks for better control
   const {
-    // Auth state
     isFullyAuthenticated,
     hasValidSession,
     address,
     hasHydrated,
+  } = useWallet();
 
-    // Data
+  const {
     balance,
-    tokens,
-    nfts,
-    networkStatus,
-    currentNetwork,
+    refetch: refetchBalance,
+    hasInitialLoad: hasInitialBalance,
+  } = useWalletBalance();
 
-    // Loading states
-    isReady,
-    isAnyLoading,
-    hasInitialBalance,
+  const { tokens, refetch: refetchTokens } =
+    useWalletTokens();
 
-    // Methods
+  const { nfts, refetch: refetchNfts } = useWalletNFTs({
+    autoFetch: false,
+  });
+
+  const {
     sendEth,
     sendToken,
     estimateGas,
-    getFeeData,
     getTransactions,
-    refetchAll,
-    refetchBalance,
-  } = useWalletComposite();
+  } = useWalletTransactions();
+
+  const {
+    currentNetwork,
+    connectionStatus,
+    networkStatus,
+    getFeeData,
+    isLoading: isNetworkLoading,
+  } = useWalletNetwork();
 
   const [activeTab, setActiveTab] = useState("tokens");
   const [sendModalOpen, setSendModalOpen] = useState(false);
@@ -65,24 +85,6 @@ export default function WalletPage() {
   >([]);
   const [isLoadingTransactions, setIsLoadingTransactions] =
     useState(false);
-
-  const [dataLoadStatus, setDataLoadStatus] = useState({
-    balance: false,
-    tokens: false,
-    nfts: false,
-    transactions: false,
-    initialLoadComplete: false,
-  });
-
-  const fetchingRef = useRef({
-    transactions: false,
-    initialLoad: false,
-  });
-
-  const [sendFormData, setSendFormData] = useState({
-    toAddress: "",
-    amount: "",
-  });
   const [sendingTransaction, setSendingTransaction] =
     useState(false);
   const [transactionResult, setTransactionResult] =
@@ -99,262 +101,79 @@ export default function WalletPage() {
     maxPriorityFeePerGas: string;
   } | null>(null);
   const [loadingFee, setLoadingFee] = useState(false);
+  const [sendFormData, setSendFormData] = useState({
+    toAddress: "",
+    amount: "",
+  });
+  const [
+    hasAttemptedConnection,
+    setHasAttemptedConnection,
+  ] = useState(false);
 
-  const isAuthenticated = useCallback(() => {
+  const [tabLoadStates, setTabLoadStates] = useState<{
+    tokens: { loaded: boolean; loading: boolean };
+    nfts: { loaded: boolean; loading: boolean };
+    transactions: { loaded: boolean; loading: boolean };
+  }>({
+    tokens: { loaded: false, loading: false },
+    nfts: { loaded: false, loading: false },
+    transactions: { loaded: false, loading: false },
+  });
+
+  // Stable memoized values to prevent re-renders
+  const authState = useMemo(
+    () => ({
+      isAuthenticated:
+        isFullyAuthenticated &&
+        hasValidSession &&
+        !!address,
+      address,
+      hasHydrated,
+    }),
+    [
+      isFullyAuthenticated,
+      hasValidSession,
+      address,
+      hasHydrated,
+    ]
+  );
+
+  const connectionState = useMemo(
+    () => ({
+      isConnected: connectionStatus === "connected",
+      connectionStatus,
+      networkStatus,
+      isLoading: isNetworkLoading,
+    }),
+    [connectionStatus, networkStatus, isNetworkLoading]
+  );
+
+  const canFetchData = useMemo(() => {
     return (
-      hasHydrated &&
-      isFullyAuthenticated &&
-      hasValidSession &&
-      address
+      authState.isAuthenticated &&
+      connectionState.isConnected
     );
   }, [
-    hasHydrated,
-    isFullyAuthenticated,
-    hasValidSession,
-    address,
+    authState.isAuthenticated,
+    connectionState.isConnected,
   ]);
 
-  const fetchTransactions = useCallback(async () => {
-    if (!isAuthenticated() || !address || !isReady) {
-      return;
-    }
-
-    if (fetchingRef.current.transactions) {
-      return;
-    }
-
-    fetchingRef.current.transactions = true;
-    setIsLoadingTransactions(true);
-
-    try {
-      const txs = await getTransactions(address);
-      setTransactions(txs);
-      setDataLoadStatus((prev) => ({
-        ...prev,
-        transactions: true,
-      }));
-    } catch {
-      toast.error("Transaction History", {
-        description:
-          "Unable to load transaction history. Please try refreshing.",
-      });
-    } finally {
-      setIsLoadingTransactions(false);
-      fetchingRef.current.transactions = false;
-    }
-  }, [isAuthenticated, getTransactions, address, isReady]);
-
-  const handleRefresh = useCallback(async () => {
-    if (!isAuthenticated() || !isReady) {
-      return;
-    }
-
-    try {
-      setDataLoadStatus((prev) => ({
-        ...prev,
-        balance: false,
-        tokens: false,
-        nfts: false,
-        transactions: false,
-      }));
-
-      await refetchBalance();
-      setDataLoadStatus((prev) => ({
-        ...prev,
-        balance: true,
-      }));
-
-      await refetchAll();
-      setDataLoadStatus((prev) => ({
-        ...prev,
-        tokens: true,
-        nfts: true,
-      }));
-
-      await fetchTransactions();
-    } catch {
-      // Silent error handling for refresh operations
-    }
-  }, [
-    isAuthenticated,
-    isReady,
-    refetchAll,
-    refetchBalance,
-    fetchTransactions,
-  ]);
-
-  useEffect(() => {
-    const loadInitialData = async () => {
-      if (
-        !isAuthenticated() ||
-        !isReady ||
-        dataLoadStatus.initialLoadComplete ||
-        fetchingRef.current.initialLoad
-      ) {
-        return;
-      }
-
-      fetchingRef.current.initialLoad = true;
-
-      try {
-        if (!dataLoadStatus.balance && !hasInitialBalance) {
-          await refetchBalance();
-          setDataLoadStatus((prev) => ({
-            ...prev,
-            balance: true,
-          }));
-        }
-
-        if (
-          !dataLoadStatus.tokens ||
-          !dataLoadStatus.nfts
-        ) {
-          await refetchAll();
-          setDataLoadStatus((prev) => ({
-            ...prev,
-            tokens: true,
-            nfts: true,
-          }));
-        }
-
-        if (!dataLoadStatus.transactions) {
-          await fetchTransactions();
-        }
-
-        setDataLoadStatus((prev) => ({
-          ...prev,
-          initialLoadComplete: true,
-        }));
-      } catch {
-        // Silent error handling for initial data load
-      } finally {
-        fetchingRef.current.initialLoad = false;
-      }
-    };
-
-    loadInitialData();
-  }, [
-    isAuthenticated,
-    isReady,
-    dataLoadStatus.initialLoadComplete,
-    dataLoadStatus.balance,
-    dataLoadStatus.tokens,
-    dataLoadStatus.nfts,
-    dataLoadStatus.transactions,
-    hasInitialBalance,
-    refetchBalance,
-    refetchAll,
-    fetchTransactions,
-  ]);
-
-  useEffect(() => {
-    if (hasHydrated && !isAuthenticated()) {
-      router.push("/connect");
-      return;
-    }
-  }, [hasHydrated, isAuthenticated, router]);
-
-  useEffect(() => {
-    if (!isAuthenticated()) return;
-
-    let hasHandledReload = false;
-
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (
-        hasHandledReload ||
-        !isAuthenticated() ||
-        !isReady
-      ) {
-        return;
-      }
-
-      if (
-        event.persisted ||
-        (window.performance &&
-          window.performance.getEntriesByType &&
-          window.performance.getEntriesByType("navigation")
-            .length > 0 &&
-          (
-            window.performance.getEntriesByType(
-              "navigation"
-            )[0] as PerformanceNavigationTiming
-          ).type === "reload")
-      ) {
-        hasHandledReload = true;
-
-        setTimeout(async () => {
-          setDataLoadStatus({
-            balance: false,
-            tokens: false,
-            nfts: false,
-            transactions: false,
-            initialLoadComplete: false,
-          });
-
-          await handleRefresh();
-        }, 200);
-      }
-    };
-
-    const handlePopState = () => {
-      if (!isAuthenticated() || !isReady) return;
-      setTimeout(() => handleRefresh(), 200);
-    };
-
-    const handleVisibilityChange = () => {
-      if (
-        !document.hidden &&
-        isAuthenticated() &&
-        isReady &&
-        dataLoadStatus.initialLoadComplete
-      ) {
-        const hasStaleData =
-          !balance ||
-          balance === "0" ||
-          !tokens ||
-          tokens.length === 0 ||
-          !nfts ||
-          transactions.length === 0;
-
-        if (hasStaleData) {
-          handleRefresh();
-        } else {
-          refetchBalance();
-        }
-      }
-    };
-
-    window.addEventListener("pageshow", handlePageShow);
-    window.addEventListener("popstate", handlePopState);
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibilityChange
+  // Check if we're still initializing (network connecting, etc.)
+  const isInitializing = useMemo(() => {
+    return (
+      !authState.hasHydrated ||
+      connectionState.isLoading ||
+      (authState.isAuthenticated &&
+        connectionState.connectionStatus ===
+          "connecting") ||
+      (authState.isAuthenticated && !hasAttemptedConnection)
     );
-
-    return () => {
-      window.removeEventListener(
-        "pageshow",
-        handlePageShow
-      );
-      window.removeEventListener(
-        "popstate",
-        handlePopState
-      );
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange
-      );
-    };
   }, [
-    isAuthenticated,
-    isReady,
-    handleRefresh,
-    refetchBalance,
-    balance,
-    tokens,
-    nfts,
-    transactions,
-    dataLoadStatus.initialLoadComplete,
+    authState.hasHydrated,
+    authState.isAuthenticated,
+    connectionState.isLoading,
+    connectionState.connectionStatus,
+    hasAttemptedConnection,
   ]);
 
   const formatBalance = useCallback(
@@ -369,12 +188,317 @@ export default function WalletPage() {
     []
   );
 
+  const walletData = useMemo(
+    () => ({
+      address: authState.address || "",
+      ethBalance: balance || "0",
+      formattedEthBalance: formatBalance(balance || "0"),
+      tokens: tokens || [],
+      nfts: nfts || [],
+      transactions: transactions || [],
+      network: currentNetwork,
+    }),
+    [
+      authState.address,
+      balance,
+      tokens,
+      nfts,
+      transactions,
+      currentNetwork,
+      formatBalance,
+    ]
+  );
+
+  // Cache helper to prevent duplicate requests
+  const shouldFetch = useCallback(
+    (tabName: string, cacheTime = 30000) => {
+      const lastFetch = lastFetchTimestamp.current[tabName];
+      const now = Date.now();
+      return !lastFetch || now - lastFetch > cacheTime;
+    },
+    []
+  );
+
+  const fetchTransactions = useCallback(async () => {
+    if (
+      !canFetchData ||
+      !authState.address ||
+      isLoadingTransactions ||
+      !shouldFetch("transactions")
+    ) {
+      return;
+    }
+
+    console.log("Fetching transactions...");
+    setIsLoadingTransactions(true);
+    setTabLoadStates((prev) => ({
+      ...prev,
+      transactions: { ...prev.transactions, loading: true },
+    }));
+
+    try {
+      const txs = await getTransactions(authState.address);
+      setTransactions(txs || []);
+      lastFetchTimestamp.current.transactions = Date.now();
+      setTabLoadStates((prev) => ({
+        ...prev,
+        transactions: { loaded: true, loading: false },
+      }));
+    } catch {
+      toast.error("Transaction History", {
+        description:
+          "Unable to load transaction history. Please try refreshing.",
+      });
+      setTransactions([]);
+      setTabLoadStates((prev) => ({
+        ...prev,
+        transactions: { loaded: false, loading: false },
+      }));
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, [
+    canFetchData,
+    authState.address,
+    getTransactions,
+    isLoadingTransactions,
+    shouldFetch,
+  ]);
+
+  const fetchNFTs = useCallback(async () => {
+    if (
+      !canFetchData ||
+      tabLoadStates.nfts.loading ||
+      !shouldFetch("nfts")
+    ) {
+      return;
+    }
+
+    console.log("Fetching NFTs...");
+    setTabLoadStates((prev) => ({
+      ...prev,
+      nfts: { ...prev.nfts, loading: true },
+    }));
+
+    try {
+      await refetchNfts();
+      lastFetchTimestamp.current.nfts = Date.now();
+      setTabLoadStates((prev) => ({
+        ...prev,
+        nfts: { loaded: true, loading: false },
+      }));
+    } catch (error) {
+      console.error("Failed to fetch NFTs:", error);
+      toast.error("NFTs", {
+        description:
+          "Unable to load NFTs. Please try again.",
+      });
+      setTabLoadStates((prev) => ({
+        ...prev,
+        nfts: { loaded: false, loading: false },
+      }));
+    }
+  }, [
+    canFetchData,
+    tabLoadStates.nfts.loading,
+    shouldFetch,
+    refetchNfts,
+  ]);
+
+  // Optimized tab change handler with lazy loading
+  const handleTabChange = useCallback(
+    async (newTab: string) => {
+      setActiveTab(newTab);
+
+      // Only fetch data if not already loaded or loading
+      if (!canFetchData) return;
+
+      switch (newTab) {
+        case "tokens":
+          // Tokens are always loaded on mount, but refresh if stale
+          if (shouldFetch("tokens", 60000)) {
+            // 1 minute cache for tokens
+            lastFetchTimestamp.current.tokens = Date.now();
+            refetchTokens();
+          }
+          break;
+        case "nfts":
+          if (
+            !tabLoadStates.nfts.loaded &&
+            !tabLoadStates.nfts.loading
+          ) {
+            await fetchNFTs();
+          }
+          break;
+        case "transactions":
+          if (
+            !tabLoadStates.transactions.loaded &&
+            !tabLoadStates.transactions.loading
+          ) {
+            await fetchTransactions();
+          }
+          break;
+      }
+    },
+    [
+      canFetchData,
+      shouldFetch,
+      tabLoadStates,
+      fetchNFTs,
+      fetchTransactions,
+      refetchTokens,
+    ]
+  );
+
+  // Optimized refresh function
+  const handleRefresh = useCallback(async () => {
+    if (!canFetchData || isRefreshingRef.current) return;
+
+    console.log("Manual refresh triggered");
+    isRefreshingRef.current = true;
+
+    try {
+      // Always refresh balance
+      await refetchBalance();
+
+      // Clear cache timestamps to force fresh data
+      lastFetchTimestamp.current = {};
+
+      // Refresh current tab data
+      switch (activeTab) {
+        case "tokens":
+          await refetchTokens();
+          break;
+        case "nfts":
+          if (tabLoadStates.nfts.loaded) {
+            await fetchNFTs();
+          }
+          break;
+        case "transactions":
+          if (tabLoadStates.transactions.loaded) {
+            await fetchTransactions();
+          }
+          break;
+      }
+
+      toast.success("Refreshed", {
+        description: "Wallet data updated successfully",
+      });
+    } catch (error) {
+      console.error("Refresh failed:", error);
+      toast.error("Refresh Failed", {
+        description:
+          "Unable to refresh wallet data. Please try again.",
+      });
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  }, [
+    canFetchData,
+    refetchBalance,
+    refetchTokens,
+    fetchNFTs,
+    fetchTransactions,
+    activeTab,
+    tabLoadStates,
+  ]);
+
+  // Handle authentication redirect
+  useEffect(() => {
+    if (!authState.hasHydrated) return;
+
+    if (!authState.isAuthenticated) {
+      console.log(
+        "Not authenticated, redirecting to connect"
+      );
+      router.push("/connect");
+    }
+  }, [
+    authState.hasHydrated,
+    authState.isAuthenticated,
+    router,
+  ]);
+
+  // Handle connection attempt timing
+  useEffect(() => {
+    if (
+      authState.isAuthenticated &&
+      authState.hasHydrated
+    ) {
+      const timer = setTimeout(() => {
+        setHasAttemptedConnection(true);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    } else {
+      setHasAttemptedConnection(false);
+    }
+  }, [authState.isAuthenticated, authState.hasHydrated]);
+
+  // Initialize tokens (default tab) when ready
+  useEffect(() => {
+    if (
+      canFetchData &&
+      !hasInitializedRef.current &&
+      !tabLoadStates.tokens.loaded &&
+      !tabLoadStates.tokens.loading
+    ) {
+      console.log("Initializing tokens (default tab)");
+      hasInitializedRef.current = true;
+      lastFetchTimestamp.current.tokens = Date.now();
+      setTabLoadStates((prev) => ({
+        ...prev,
+        tokens: { loaded: true, loading: false },
+      }));
+    }
+  }, [canFetchData, tabLoadStates.tokens]);
+
+  // Handle visibility changes for refresh
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        canFetchData &&
+        hasInitialBalance &&
+        shouldFetch("visibility", 60000)
+      ) {
+        console.log("Page visible, scheduling refresh...");
+        lastFetchTimestamp.current.visibility = Date.now();
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          handleRefresh();
+        }, 2000);
+      }
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+    return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+      clearTimeout(timeoutId);
+    };
+  }, [
+    canFetchData,
+    hasInitialBalance,
+    handleRefresh,
+    shouldFetch,
+  ]);
+
+  // Modal functions
   const openSendModal = useCallback(
     (token: Token | null = null) => {
       setSelectedToken(token);
       setSendModalOpen(true);
       setSendFormData({ toAddress: "", amount: "" });
       setTransactionResult(null);
+      setNetworkFee(null);
     },
     []
   );
@@ -397,47 +521,54 @@ export default function WalletPage() {
     []
   );
 
+  const navigateToTransactions = useCallback(() => {
+    router.push("/wallet/transactions");
+  }, [router]);
+
+  // Fee estimation effect
   useEffect(() => {
     if (
-      sendModalOpen &&
-      sendFormData.toAddress &&
-      sendFormData.amount
+      !sendModalOpen ||
+      !sendFormData.toAddress ||
+      !sendFormData.amount
     ) {
-      const loadFee = async () => {
-        setLoadingFee(true);
-        try {
-          const feeData = await getFeeData();
-          const gasEstimate = await estimateGas(
-            sendFormData.toAddress,
-            sendFormData.amount
-          );
-
-          const gasLimitBigInt = BigInt(gasEstimate);
-          const maxFeePerGasBigInt = BigInt(
-            feeData.maxFeePerGas || "0"
-          );
-          const totalFeeBigInt =
-            gasLimitBigInt * maxFeePerGasBigInt;
-
-          setNetworkFee({
-            eth: formatEther(totalFeeBigInt.toString()),
-            wei: totalFeeBigInt.toString(),
-            gasLimit: gasEstimate,
-            maxFeePerGas: feeData.maxFeePerGas || "0",
-            maxPriorityFeePerGas:
-              feeData.maxPriorityFeePerGas || "0",
-          });
-        } catch {
-          // Silent error handling for fee estimation
-          setNetworkFee(null);
-        } finally {
-          setLoadingFee(false);
-        }
-      };
-
-      const timeoutId = setTimeout(loadFee, 500);
-      return () => clearTimeout(timeoutId);
+      setNetworkFee(null);
+      return;
     }
+
+    const timeoutId = setTimeout(async () => {
+      setLoadingFee(true);
+      try {
+        const feeData = await getFeeData();
+        const gasEstimate = await estimateGas(
+          sendFormData.toAddress,
+          sendFormData.amount
+        );
+
+        const gasLimitBigInt = BigInt(gasEstimate);
+        const maxFeePerGasBigInt = BigInt(
+          feeData.maxFeePerGas || "0"
+        );
+        const totalFeeBigInt =
+          gasLimitBigInt * maxFeePerGasBigInt;
+
+        setNetworkFee({
+          eth: formatEther(totalFeeBigInt.toString()),
+          wei: totalFeeBigInt.toString(),
+          gasLimit: gasEstimate,
+          maxFeePerGas: feeData.maxFeePerGas || "0",
+          maxPriorityFeePerGas:
+            feeData.maxPriorityFeePerGas || "0",
+        });
+      } catch (error) {
+        console.error("Fee estimation failed:", error);
+        setNetworkFee(null);
+      } finally {
+        setLoadingFee(false);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
   }, [
     sendModalOpen,
     sendFormData.toAddress,
@@ -446,6 +577,7 @@ export default function WalletPage() {
     estimateGas,
   ]);
 
+  // Send transaction function
   const handleSendSubmit = useCallback(
     async (
       e: React.FormEvent,
@@ -458,9 +590,7 @@ export default function WalletPage() {
     ) => {
       e.preventDefault();
 
-      const walletAddress = address;
-
-      if (!walletAddress) {
+      if (!authState.address) {
         toast.error("Wallet Error", {
           description:
             "Wallet address not available. Please reconnect your wallet.",
@@ -477,7 +607,7 @@ export default function WalletPage() {
       }
 
       if (
-        walletAddress.toLowerCase() ===
+        authState.address.toLowerCase() ===
         formData.toAddress.toLowerCase()
       ) {
         toast.error("Invalid Recipient", {
@@ -493,18 +623,17 @@ export default function WalletPage() {
         let result: WalletOpResult;
 
         if (formData.tokenAddress) {
-          // Pass the wallet address explicitly as fromAddress
           result = await sendToken(
             formData.tokenAddress,
             formData.toAddress,
             formData.amount,
-            walletAddress
+            authState.address
           );
         } else {
           result = await sendEth(
             formData.toAddress,
             formData.amount,
-            walletAddress
+            authState.address
           );
         }
 
@@ -524,11 +653,11 @@ export default function WalletPage() {
 
           setSendFormData({ toAddress: "", amount: "" });
 
-          setTimeout(async () => {
-            await refetchBalance();
-            await refetchAll();
-            await fetchTransactions();
-          }, 2000);
+          // Clear cache and refresh data after successful transaction
+          lastFetchTimestamp.current = {};
+          setTimeout(() => {
+            handleRefresh();
+          }, 3000);
         } else {
           toast.error("Transaction Failed", {
             description:
@@ -541,11 +670,9 @@ export default function WalletPage() {
           error instanceof Error
             ? error.message
             : "Transaction failed. Please try again.";
-
         toast.error("Transaction Error", {
           description: errorMessage,
         });
-
         setTransactionResult({
           success: false,
           message: errorMessage,
@@ -554,26 +681,10 @@ export default function WalletPage() {
         setSendingTransaction(false);
       }
     },
-    [
-      address,
-      sendEth,
-      sendToken,
-      refetchBalance,
-      refetchAll,
-      fetchTransactions,
-    ]
+    [authState.address, sendEth, sendToken, handleRefresh]
   );
 
-  const navigateToTransactions = useCallback(() => {
-    router.push("/wallet/transactions");
-  }, [router]);
-
-  const getCurrentNetwork = useCallback(() => {
-    return currentNetwork;
-  }, [currentNetwork]);
-
-  // Show loading while not authenticated or still checking auth
-  if (!isAuthenticated()) {
+  if (isInitializing || !authState.isAuthenticated) {
     return (
       <CenterContainer>
         <LoadingSpinner />
@@ -581,16 +692,7 @@ export default function WalletPage() {
     );
   }
 
-  // Show loading while hydration is in progress
-  if (!hasHydrated) {
-    return (
-      <CenterContainer>
-        <LoadingSpinner />
-      </CenterContainer>
-    );
-  }
-
-  if (!address) {
+  if (!authState.address) {
     return (
       <CenterContainer>
         <Web3Card
@@ -615,45 +717,48 @@ export default function WalletPage() {
     );
   }
 
-  const isLoading = isAnyLoading || isLoadingTransactions;
-  const shouldShowLoading =
-    !isReady ||
-    (!dataLoadStatus.initialLoadComplete &&
-      !hasInitialBalance &&
-      !dataLoadStatus.balance &&
-      isLoading);
-
-  if (shouldShowLoading) {
-    return (
-      <CenterContainer>
-        <LoadingSpinner />
-      </CenterContainer>
-    );
-  }
-
-  const walletData = {
-    address,
-    ethBalance: balance || "0",
-    formattedEthBalance: formatBalance(balance || "0"),
-    tokens: tokens || [],
-    nfts: nfts || [],
-    transactions: transactions || [],
-    network: getCurrentNetwork(),
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Connection Status */}
+        {!connectionState.isConnected &&
+          !connectionState.isLoading &&
+          authState.isAuthenticated &&
+          !isInitializing &&
+          hasAttemptedConnection &&
+          connectionState.connectionStatus !==
+            "connecting" && (
+            <div className="mb-6 p-4 bg-yellow-900/20 border border-yellow-800/50 rounded-lg text-yellow-400">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <span>
+                    Network not connected. Please check your
+                    connection.
+                  </span>
+                </div>
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshingRef.current}
+                  className="text-sm underline hover:no-underline disabled:opacity-50"
+                >
+                  {isRefreshingRef.current
+                    ? "Retrying..."
+                    : "Retry"}
+                </button>
+              </div>
+            </div>
+          )}
+
         <BalanceCard
           walletData={walletData}
-          networkStatus={networkStatus}
+          networkStatus={connectionState.networkStatus}
           openSendModal={openSendModal}
           formatGasPrice={formatGasPrice}
         />
 
         <TabsContainer
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleTabChange}
           walletData={walletData}
           openSendModal={openSendModal}
           navigateToTransactions={navigateToTransactions}
