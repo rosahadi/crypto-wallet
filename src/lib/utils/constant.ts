@@ -36,11 +36,3 @@ export const NETWORKS: NetworkConfig[] = [
     },
   },
 ];
-
-export const WALLET_SESSION_SECRET =
-  process.env.WALLET_SESSION_SECRET || "";
-export const SESSION_DURATION =
-  parseInt(process.env.SESSION_DURATION_HOURS || "3", 10) *
-  60 *
-  60 *
-  1000;
