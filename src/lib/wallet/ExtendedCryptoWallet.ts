@@ -267,40 +267,49 @@ export class ExtendedCryptoWallet extends CryptoWallet {
    * Sends tokens to another address
    * @param tokenAddress - The token contract address
    * @param to - Recipient address
-   * @param amount - Amount to send (in token's smallest unit)
+   * @param stringamount - Amount to send
    * @returns Transaction hash
    */
   async sendToken(
     tokenAddress: string,
     to: string,
-    amount: bigint
+    stringamount: string
   ): Promise<string> {
     if (!this.isInitialized()) {
       throw new Error("Wallet not initialized");
     }
 
-    // Check token balance
+    const metadata = await this.getTokenMetadata(
+      tokenAddress
+    );
+
+    const amount = this.parseTokenAmount(
+      stringamount,
+      metadata.decimals
+    );
+
     const tokenBalance = BigInt(
       await this.getTokenBalance(tokenAddress)
     );
+
     if (tokenBalance < amount) {
-      const metadata = await this.getTokenMetadata(
-        tokenAddress
+      const humanBalance = this.formatTokenBalance(
+        tokenBalance.toString(),
+        metadata.decimals
       );
+
       throw new Error(
         `Insufficient token balance:\n` +
-          ` Available: ${tokenBalance} ${metadata.symbol}\n` +
-          ` Required: ${amount} ${metadata.symbol}`
+          ` Available: ${humanBalance} ${metadata.symbol}\n` +
+          ` Required: ${stringamount} ${metadata.symbol}`
       );
     }
 
-    // Create transaction data using TokenApiService
     const data = this.tokenService.createTokenTransferData(
       to,
       amount
     );
 
-    // Create and send the transaction
     const signedTx = await this.createEIP1559Transaction(
       tokenAddress,
       BigInt(0),
@@ -308,5 +317,46 @@ export class ExtendedCryptoWallet extends CryptoWallet {
     );
 
     return this.sendRawTransaction(signedTx);
+  }
+
+  private parseTokenAmount(
+    amount: string,
+    decimals: number
+  ): bigint {
+    const parts = amount.split(".");
+    const wholePart = parts[0] || "0";
+    const fractionalPart = parts[1] || "";
+
+    const paddedFractional = fractionalPart
+      .padEnd(decimals, "0")
+      .slice(0, decimals);
+
+    const fullAmount = wholePart + paddedFractional;
+
+    return BigInt(fullAmount);
+  }
+
+  private formatTokenBalance(
+    balance: string,
+    decimals: number
+  ): string {
+    const balanceBigInt = BigInt(balance);
+    const divisor = BigInt(10) ** BigInt(decimals);
+
+    const wholePart = balanceBigInt / divisor;
+    const fractionalPart = balanceBigInt % divisor;
+
+    if (fractionalPart === 0n) {
+      return wholePart.toString();
+    }
+
+    const fractionalStr = fractionalPart
+      .toString()
+      .padStart(decimals, "0");
+    const trimmed = fractionalStr.replace(/0+$/, "");
+
+    return trimmed
+      ? `${wholePart}.${trimmed}`
+      : wholePart.toString();
   }
 }

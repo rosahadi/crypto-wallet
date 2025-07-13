@@ -529,7 +529,13 @@ export class WalletService {
   async getBalance(address?: string): Promise<string> {
     try {
       this.ensureWalletReady();
-      const balance = await this.wallet.getBalance(address);
+
+      const targetAddress =
+        address || this.getWalletAddress();
+
+      const balance = await this.wallet.getBalance(
+        targetAddress
+      );
       return balance.toString();
     } catch {
       return "0";
@@ -552,24 +558,23 @@ export class WalletService {
 
       this.ensureWalletReady();
 
+      const walletAddress = this.getWalletAddress();
+
       const value = parseEther(amount);
-      const balance = await this.wallet.getBalance();
+      const balance = await this.wallet.getBalance(
+        walletAddress
+      );
 
       if (BigInt(balance) === BigInt(0)) {
         const directBalanceCheck =
           await this.wallet.callRPC<string>(
             "eth_getBalance",
-            [
-              this.wallet.getAddress().toLowerCase(),
-              "latest",
-            ]
+            [walletAddress.toLowerCase(), "latest"]
           );
 
         return this.createErrorResult(
           null,
-          `Wallet ${this.wallet.getAddress()} shows zero balance. Direct RPC check: ${directBalanceCheck}. Please verify you have funds on the ${
-            this.currentNetwork.name
-          } network.`
+          `Wallet ${walletAddress} shows zero balance. Direct RPC check: ${directBalanceCheck}. Please verify you have funds on the ${this.currentNetwork.name} network.`
         );
       }
 
@@ -584,6 +589,9 @@ export class WalletService {
         {
           txHash,
           network: this.currentNetwork.name,
+          from: walletAddress,
+          to: toAddress,
+          amount,
         }
       );
     } catch (error) {
@@ -696,10 +704,12 @@ export class WalletService {
 
       this.ensureWalletReady();
 
+      const walletAddress = this.getWalletAddress();
+
       const txHash = await this.wallet.sendToken(
         tokenAddress,
         toAddress,
-        BigInt(amount)
+        amount
       );
 
       return this.createSuccessResult(
@@ -707,6 +717,10 @@ export class WalletService {
         {
           txHash,
           network: this.currentNetwork.name,
+          from: walletAddress,
+          to: toAddress,
+          tokenAddress,
+          amount,
         }
       );
     } catch (error) {
