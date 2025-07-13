@@ -1,6 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import {
   AlertTriangle,
   X,
@@ -30,6 +34,14 @@ export const Alert: React.FC<AlertProps> = ({
   const [isVisible, setIsVisible] = useState(true);
   const [isAnimating, setIsAnimating] = useState(false);
 
+  const handleDismiss = useCallback(() => {
+    setIsAnimating(true);
+    setTimeout(() => {
+      setIsVisible(false);
+      onDismiss?.();
+    }, 300);
+  }, [setIsAnimating, setIsVisible, onDismiss]);
+
   useEffect(() => {
     if (autoHide) {
       const timer = setTimeout(() => {
@@ -38,15 +50,7 @@ export const Alert: React.FC<AlertProps> = ({
 
       return () => clearTimeout(timer);
     }
-  }, [autoHide, autoHideDelay]);
-
-  const handleDismiss = () => {
-    setIsAnimating(true);
-    setTimeout(() => {
-      setIsVisible(false);
-      onDismiss?.();
-    }, 300);
-  };
+  }, [autoHide, autoHideDelay, handleDismiss]);
 
   const getVariantStyles = () => {
     switch (variant) {
